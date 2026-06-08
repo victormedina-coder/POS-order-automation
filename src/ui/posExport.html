@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopify → NetSuite</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f; --bg2: #171717; --bg3: #1f1f1f;
+    --border: #2a2a2a; --border2: #333;
+    --text: #e8e6e0; --text2: #888; --text3: #555;
+    --accent: #c8f060; --accent2: #a8d040;
+    --danger: #ff5c5c;
+    --font-d: system-ui, -apple-system, sans-serif;
+    --font-m: 'Courier New', monospace;
+    --sidebar-w: 280px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-d); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+  .layout { display: flex; height: 100vh; overflow: hidden; }
+
+  .sidebar {
+    width: var(--sidebar-w); min-width: var(--sidebar-w);
+    background: var(--bg2); border-right: 1px solid var(--border);
+    padding: 1.75rem 1.5rem;
+    display: flex; flex-direction: column; gap: 1.5rem;
+    overflow-y: auto;
+  }
+  .logo { font-family: var(--font-m); font-size: 12px; color: var(--accent); letter-spacing: .1em; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+
+  .field { display: flex; flex-direction: column; gap: .4rem; }
+  .label { font-family: var(--font-m); font-size: 10px; letter-spacing: .12em; color: var(--text3); text-transform: uppercase; }
+  select, input[type=date] {
+    background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
+    padding: .6rem .75rem; color: var(--text); font-family: var(--font-m);
+    font-size: .875rem; outline: none; width: 100%; transition: border-color .15s;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.4); cursor: pointer; }
+
+  .btn {
+    border: none; border-radius: 8px; padding: .7rem 1rem;
+    font-family: var(--font-d); font-size: .875rem; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: center; gap: .5rem; transition: all .15s; width: 100%;
+  }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn-primary { background: var(--accent); color: #0f0f0f; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent2); }
+  .btn-export { background: var(--bg3); color: var(--accent); border: 1px solid var(--accent); }
+  .btn-export:hover:not(:disabled) { background: #1a2a0a; }
+  .btn-ghost { background: none; border: none; color: var(--text3); font-family: var(--font-m); font-size: .8rem; cursor: pointer; text-align: left; padding: 0; margin-top: auto; transition: color .15s; }
+  .btn-ghost:hover { color: var(--text2); }
+
+  .spinner { width: 16px; height: 16px; border: 2px solid #0f0f0f4a; border-top-color: #0f0f0f; border-radius: 50%; animation: spin .6s linear infinite; }
+  .spinner-accent { border-color: #c8f06044; border-top-color: var(--accent); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .content { flex: 1; overflow-y: auto; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
+
+  .error-banner { padding: .75rem 1rem; border-radius: 8px; background: #2a0f0f; border: 1px solid #5c1f1f; color: var(--danger); font-size: .875rem; font-family: var(--font-m); display: none; }
+
+  .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: var(--text3); text-align: center; }
+  .empty p { font-size: .95rem; line-height: 1.7; }
+  .empty strong { color: var(--text2); }
+
+  .stats { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 120px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: .3rem; }
+  .stat-val { font-size: 1.6rem; font-weight: 700; color: var(--accent); font-family: var(--font-m); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat-lbl { font-family: var(--font-m); font-size: 10px; letter-spacing: .1em; color: var(--text3); text-transform: uppercase; }
+
+  .uuid-section { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; max-height: 320px; overflow-y: auto; }
+  .uuid-header { font-family: var(--font-m); font-size: 10px; letter-spacing: .12em; color: var(--text3); text-transform: uppercase; margin-bottom: 1rem; }
+  .uuid-row { display: flex; align-items: center; gap: 1rem; margin-bottom: .6rem; }
+  .uuid-date { font-family: var(--font-m); font-size: .85rem; color: var(--text2); min-width: 110px; }
+  .uuid-input {
+    flex: 1; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
+    padding: .55rem .75rem; color: var(--text); font-family: var(--font-m); font-size: .8rem;
+    outline: none; transition: border-color .15s;
+  }
+  .uuid-input:focus { border-color: var(--accent); }
+  .uuid-input::placeholder { color: var(--text3); }
+
+  .table-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--font-m); font-size: .8rem; }
+  thead th { background: var(--bg3); padding: .6rem 1rem; text-align: left; font-size: 10px; letter-spacing: .1em; color: var(--text3); text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+  tbody td { padding: .55rem 1rem; border-bottom: 1px solid var(--border); white-space: nowrap; color: var(--text2); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--bg3); color: var(--text); }
+  .table-note { padding: .6rem 1rem; font-family: var(--font-m); font-size: .75rem; color: var(--text3); border-top: 1px solid var(--border); background: var(--bg3); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="logo">SHOPIFY → NETSUITE</div>
+
+    <div class="field">
+      <label class="label">Sucursal</label>
+      <select id="store"><option value="">Cargando...</option></select>
+    </div>
+
+    <div class="field">
+      <label class="label">Fecha inicio</label>
+      <input type="date" id="date-from" />
+    </div>
+
+    <div class="field">
+      <label class="label">Fecha fin</label>
+      <input type="date" id="date-to" />
+    </div>
+
+    <button class="btn btn-primary" id="btn-consultar" onclick="consultar()">
+      Consultar pedidos
+    </button>
+
+    <button class="btn btn-export hidden" id="btn-export" onclick="descargar()">
+      ↓ Descargar CSV
+    </button>
+
+    <button class="btn-ghost" onclick="location.reload()">↺ Recargar</button>
+  </aside>
+
+  <main class="content">
+    <div class="error-banner" id="error-banner"></div>
+
+    <div class="empty" id="empty-state">
+      <p>Selecciona un periodo y haz clic en<br><strong>Consultar pedidos</strong></p>
+    </div>
+
+    <div class="stats hidden" id="stats-row"></div>
+
+    <div class="uuid-section hidden" id="uuid-section">
+      <div class="uuid-header">UUID por día de facturación</div>
+      <div id="uuid-fields"></div>
+    </div>
+
+    <div class="table-wrap hidden" id="table-wrap"></div>
+  </main>
+</div>
+
+<script>
+  let lastRows = null
+
+  const now = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  document.getElementById('date-from').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`
+  document.getElementById('date-to').value   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
+
+  fetch('/pos-export/locations')
+    .then(r => r.json())
+    .then(({ locations }) => {
+      const sel = document.getElementById('store')
+      sel.innerHTML = locations.map(l => `<option value="${l}">${l}</option>`).join('')
+    })
+
+  function consultar() {
+    const dateFrom  = document.getElementById('date-from').value
+    const dateTo    = document.getElementById('date-to').value
+    const storeName = document.getElementById('store').value
+    if (!dateFrom || !dateTo || !storeName) return
+
+    setLoading(true)
+    hideError()
+    lastRows = null
+    document.getElementById('btn-export').classList.add('hidden')
+    document.getElementById('stats-row').classList.add('hidden')
+    document.getElementById('uuid-section').classList.add('hidden')
+    document.getElementById('table-wrap').classList.add('hidden')
+
+    fetch('/pos-export/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dateFrom, dateTo, storeName }),
+    })
+      .then(r => r.json())
+      .then(result => {
+        setLoading(false)
+        if (!result.ok) { showError(result.error); return }
+
+        lastRows = result.rows
+        renderStats(result.stats, storeName)
+        renderUUIDFields(dateFrom, dateTo)
+        renderTable(result.rows)
+        document.getElementById('btn-export').classList.remove('hidden')
+      })
+      .catch(err => { setLoading(false); showError(err.message) })
+  }
+
+  function descargar() {
+    if (!lastRows) return
+    const dateFrom  = document.getElementById('date-from').value
+    const dateTo    = document.getElementById('date-to').value
+    const storeName = document.getElementById('store').value
+    const uuids     = collectUUIDs()
+
+    setDownloading(true)
+
+    fetch('/pos-export/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dateFrom, dateTo, storeName, uuids }),
+    })
+      .then(async res => {
+        setDownloading(false)
+        if (!res.ok) { const d = await res.json(); showError(d.error); return }
+
+        const blob = new Blob(['﻿' + await res.text()], { type: 'text/csv;charset=utf-8;' })
+        const url  = URL.createObjectURL(blob)
+        const a    = document.createElement('a')
+        a.href = url
+        a.download = `netsuite_${storeName.replace(/\s+/g,'_')}_${dateFrom}_${dateTo}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+      })
+      .catch(err => { setDownloading(false); showError(err.message) })
+  }
+
+  function renderStats(stats, store) {
+    document.getElementById('stats-row').innerHTML = `
+      <div class="stat"><span class="stat-val">${stats.totalOrders}</span><span class="stat-lbl">Pedidos</span></div>
+      <div class="stat"><span class="stat-val">${stats.totalLines}</span><span class="stat-lbl">Líneas</span></div>
+      <div class="stat"><span class="stat-val" style="font-size:1rem;padding-top:.3rem">${store}</span><span class="stat-lbl">Sucursal</span></div>
+    `
+    document.getElementById('stats-row').classList.remove('hidden')
+    document.getElementById('empty-state').classList.add('hidden')
+  }
+
+  function getDateRange(from, to) {
+    const dates = []
+    const cur = new Date(from + 'T12:00:00')
+    const end = new Date(to + 'T12:00:00')
+    while (cur <= end) {
+      dates.push(`${cur.getFullYear()}-${pad(cur.getMonth()+1)}-${pad(cur.getDate())}`)
+      cur.setDate(cur.getDate() + 1)
+    }
+    return dates
+  }
+
+  function renderUUIDFields(dateFrom, dateTo) {
+    const dates = getDateRange(dateFrom, dateTo)
+    document.getElementById('uuid-fields').innerHTML = dates.map(d => `
+      <div class="uuid-row">
+        <span class="uuid-date">${d}</span>
+        <input class="uuid-input" type="text" id="uuid-${d}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+      </div>
+    `).join('')
+    document.getElementById('uuid-section').classList.remove('hidden')
+  }
+
+  function collectUUIDs() {
+    const dateFrom = document.getElementById('date-from').value
+    const dateTo   = document.getElementById('date-to').value
+    const uuids = {}
+    for (const d of getDateRange(dateFrom, dateTo)) {
+      const val = document.getElementById(`uuid-${d}`)?.value.trim()
+      if (val) uuids[d] = val
+    }
+    return uuids
+  }
+
+  function renderTable(rows) {
+    if (!rows.length) return
+    const headers = Object.keys(rows[0])
+    const preview = rows.slice(0, 50)
+    const thead = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>`
+    const tbody = `<tbody>${preview.map(row =>
+      `<tr>${headers.map(h => `<td>${row[h] ?? ''}</td>`).join('')}</tr>`
+    ).join('')}</tbody>`
+    const note = rows.length > 50
+      ? `<div class="table-note">Mostrando 50 de ${rows.length} líneas — el CSV incluye todas</div>`
+      : ''
+    document.getElementById('table-wrap').innerHTML = `<table>${thead}${tbody}</table>${note}`
+    document.getElementById('table-wrap').classList.remove('hidden')
+  }
+
+  function setLoading(v) {
+    const btn = document.getElementById('btn-consultar')
+    btn.disabled = v
+    btn.innerHTML = v ? '<div class="spinner"></div>' : 'Consultar pedidos'
+  }
+
+  function setDownloading(v) {
+    const btn = document.getElementById('btn-export')
+    btn.disabled = v
+    btn.innerHTML = v ? '<div class="spinner spinner-accent"></div> Generando...' : '↓ Descargar CSV'
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-banner')
+    el.textContent = msg; el.style.display = 'block'
+  }
+  function hideError() { document.getElementById('error-banner').style.display = 'none' }
+</script>
+</body>
+</html>
