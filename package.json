@@ -1,0 +1,21 @@
+{
+  "name": "shopify-netsuite-pedidos-pos",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
+    "import-catalog": "node scripts/importCatalog.js"
+  },
+  "dependencies": {
+    "fastify": "^5",
+    "@fastify/oauth2": "^7",
+    "@fastify/session": "^10",
+    "@fastify/cookie": "^9",
+    "@fastify/multipart": "^8",
+    "csv-parse": "^5",
+    "dotenv": "^16",
+    "fastify-plugin": "^5"
+  }
+}
