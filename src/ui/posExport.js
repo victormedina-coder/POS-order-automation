@@ -232,6 +232,19 @@ function renderCatalogTable(id, rows, cols) {
   </table>`
 }
 
+async function clearCatalog(table) {
+  const labels = { items: 'Items', locations: 'Sucursales', payment_methods: 'Métodos de pago' }
+  if (!confirm(`¿Eliminar todos los registros de "${labels[table]}"?`)) return
+
+  try {
+    const res = await fetch(`/catalog/clear?table=${table}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.ok) { catalogLoaded = false; loadCatalog() }
+  } catch (e) {
+    alert('Error al limpiar la tabla: ' + e.message)
+  }
+}
+
 async function importCatalog() {
   const table     = document.getElementById('import-table').value
   const fileInput = document.getElementById('import-file')
