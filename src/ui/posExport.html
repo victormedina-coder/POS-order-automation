@@ -84,6 +84,8 @@
   .btn-export:hover:not(:disabled) { background: #1a2a0a; }
   .btn-import { background: var(--bg3); color: var(--text2); border: 1px solid var(--border2); }
   .btn-import:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: none; border: none; color: var(--text3); padding: 0 .4rem; height: 26px; border-radius: 5px; font-size: .75rem; }
+  .btn-danger:hover:not(:disabled) { color: var(--danger); background: #2a0f0f; }
 
   input[type=file] {
     background: var(--bg3); border: 1px solid var(--border2); border-radius: 7px;
@@ -456,6 +458,9 @@
         <div class="catalog-card-header">
           <span class="catalog-card-title">Items</span>
           <span class="count-badge" id="count-items">—</span>
+          <button class="btn btn-danger" onclick="clearCatalog('items')" title="Limpiar tabla">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
         </div>
         <div class="catalog-table-wrap" id="table-items">
           <div class="catalog-loading"><div class="spinner spinner-accent"></div></div>
@@ -465,6 +470,9 @@
         <div class="catalog-card-header">
           <span class="catalog-card-title">Sucursales</span>
           <span class="count-badge" id="count-locations">—</span>
+          <button class="btn btn-danger" onclick="clearCatalog('locations')" title="Limpiar tabla">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
         </div>
         <div class="catalog-table-wrap" id="table-locations">
           <div class="catalog-loading"><div class="spinner spinner-accent"></div></div>
@@ -474,6 +482,9 @@
         <div class="catalog-card-header">
           <span class="catalog-card-title">Métodos de pago</span>
           <span class="count-badge" id="count-payment-methods">—</span>
+          <button class="btn btn-danger" onclick="clearCatalog('payment_methods')" title="Limpiar tabla">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
         </div>
         <div class="catalog-table-wrap" id="table-payment-methods">
           <div class="catalog-loading"><div class="spinner spinner-accent"></div></div>

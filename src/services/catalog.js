@@ -63,6 +63,18 @@ export function listAllPaymentMethods() {
   return db.prepare('SELECT clave, payment_type FROM catalog_payment_methods ORDER BY clave').all()
 }
 
+const TABLE_MAP = {
+  items:           'catalog_items',
+  locations:       'catalog_locations',
+  payment_methods: 'catalog_payment_methods',
+}
+
+export function clearTable(table) {
+  const sqlTable = TABLE_MAP[table]
+  if (!sqlTable) throw new Error(`Unknown table: ${table}`)
+  db.exec(`DELETE FROM ${sqlTable}`)
+}
+
 /**
  * Importa filas al catálogo en batch usando INSERT OR REPLACE / INSERT.
  * SKUs normalizados al insertar en catalog_items.
@@ -96,6 +108,7 @@ export function bulkUpsert(table, rows) {
     `)
     db.exec('BEGIN')
     try {
+      db.exec('DELETE FROM catalog_locations')
       for (const item of rows) {
         insert.run(item.store_name, item.oracle_location, item.rep_id, item.shopify_location)
       }
