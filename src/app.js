@@ -27,6 +27,7 @@ await app.register(posExportRoutes)
 await app.register(catalogImportRoutes)
 
 app.get('/', async (_req, reply) => reply.redirect('/pos-export'))
+app.get('/health', async () => ({ ok: true }))
 
 runMigrations()
 
