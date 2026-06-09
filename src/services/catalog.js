@@ -51,6 +51,18 @@ export function listLocations() {
     .filter(Boolean)
 }
 
+export function listAllItems() {
+  return db.prepare('SELECT sku, internal_id FROM catalog_items ORDER BY sku').all()
+}
+
+export function listAllLocations() {
+  return db.prepare('SELECT store_name, oracle_location, rep_id, shopify_location FROM catalog_locations ORDER BY store_name').all()
+}
+
+export function listAllPaymentMethods() {
+  return db.prepare('SELECT clave, payment_type FROM catalog_payment_methods ORDER BY clave').all()
+}
+
 /**
  * Importa filas al catálogo en batch usando INSERT OR REPLACE / INSERT.
  * SKUs normalizados al insertar en catalog_items.
@@ -64,12 +76,16 @@ export function bulkUpsert(table, rows) {
     const insert = db.prepare(
       'INSERT OR REPLACE INTO catalog_items (sku, internal_id) VALUES (?, ?)'
     )
-    const insertMany = db.transaction(items => {
-      for (const item of items) {
+    db.exec('BEGIN')
+    try {
+      for (const item of rows) {
         insert.run(normalizeSku(item.sku), item.internal_id)
       }
-    })
-    insertMany(rows)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
     return
   }
 
@@ -78,12 +94,16 @@ export function bulkUpsert(table, rows) {
       INSERT INTO catalog_locations (store_name, oracle_location, rep_id, shopify_location)
       VALUES (?, ?, ?, ?)
     `)
-    const insertMany = db.transaction(items => {
-      for (const item of items) {
+    db.exec('BEGIN')
+    try {
+      for (const item of rows) {
         insert.run(item.store_name, item.oracle_location, item.rep_id, item.shopify_location)
       }
-    })
-    insertMany(rows)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
     return
   }
 
@@ -91,11 +111,15 @@ export function bulkUpsert(table, rows) {
     const insert = db.prepare(
       'INSERT OR REPLACE INTO catalog_payment_methods (clave, payment_type) VALUES (?, ?)'
     )
-    const insertMany = db.transaction(items => {
-      for (const item of items) {
+    db.exec('BEGIN')
+    try {
+      for (const item of rows) {
         insert.run(String(item.clave), String(item.payment_type).trim())
       }
-    })
-    insertMany(rows)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
   }
 }

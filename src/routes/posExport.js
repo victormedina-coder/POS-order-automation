@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/requireAuth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UI_PATH = path.join(__dirname, '../ui/posExport.html')
+const JS_PATH = path.join(__dirname, '../ui/posExport.js')
 
 const BODY_SCHEMA = {
   type: 'object',
@@ -21,6 +22,12 @@ const BODY_SCHEMA = {
 }
 
 export default async function posExportRoutes(fastify) {
+  // GET /pos-export/app.js — sirve el JS de la UI
+  fastify.get('/pos-export/app.js', async (_req, reply) => {
+    const js = await readFile(JS_PATH, 'utf-8')
+    return reply.type('application/javascript').send(js)
+  })
+
   fastify.get('/pos-export', { preHandler: requireAuth }, async (request, reply) => {
     const html = await readFile(UI_PATH, 'utf-8')
     return reply.type('text/html').send(html)

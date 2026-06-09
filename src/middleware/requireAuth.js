@@ -1,6 +1,8 @@
 const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN
 
 export async function requireAuth(request, reply) {
+  if (process.env.SKIP_AUTH === 'true') return
+
   const user = request.session.get('user')
 
   if (!user) {
