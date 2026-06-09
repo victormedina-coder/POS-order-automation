@@ -3,7 +3,7 @@ const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN
 export async function requireAuth(request, reply) {
   if (process.env.SKIP_AUTH === 'true') return
 
-  const user = request.session.get('user')
+  const user = request.session.user
 
   if (!user) {
     return reply.redirect('/auth/google')
@@ -11,7 +11,7 @@ export async function requireAuth(request, reply) {
 
   const emailDomain = user.email.split('@')[1]
   if (emailDomain !== ALLOWED_DOMAIN) {
-    request.session.delete()
+    await request.session.destroy()
     return reply.status(403).send({ error: 'Acceso denegado: dominio no autorizado' })
   }
 }

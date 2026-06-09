@@ -28,23 +28,23 @@ export default fp(async function authRoutes(fastify) {
     }
 
     const profile = await userRes.json()
-    request.session.set('user', {
+    request.session.user = {
       email: profile.email,
       name: profile.name,
       picture: profile.picture,
-    })
+    }
 
     return reply.redirect('/pos-export')
   })
 
   fastify.get('/auth/me', async (request, reply) => {
-    const user = request.session.get('user')
+    const user = request.session.user
     if (!user) return reply.status(401).send({ error: 'No autenticado' })
     return user
   })
 
   fastify.get('/auth/logout', async (request, reply) => {
-    request.session.delete()
+    await request.session.destroy()
     return reply.redirect('/auth/google')
   })
 })
