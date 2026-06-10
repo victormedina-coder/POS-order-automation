@@ -6,6 +6,7 @@ import { transformOrders } from '../services/posTransform.js'
 import { generateCSV } from '../services/csvGenerator.js'
 import { listLocations } from '../services/catalog.js'
 import { requireAuth } from '../middleware/requireAuth.js'
+import { getUUIDsForRange, isFacturamaConfigured } from '../services/facturama.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UI_PATH = path.join(__dirname, '../ui/posExport.html')
@@ -90,5 +91,33 @@ export default async function posExportRoutes(fastify) {
       .header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
       .send(csv)
+  })
+
+  fastify.get('/pos-export/uuids', {
+    preHandler: requireAuth,
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['dateFrom', 'dateTo'],
+        properties: {
+          dateFrom: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          dateTo:   { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { dateFrom, dateTo } = request.query
+
+    if (!isFacturamaConfigured()) {
+      return { ok: true, uuids: {}, warning: 'Facturama no configurado — UUID manual requerido' }
+    }
+
+    try {
+      const uuids = await getUUIDsForRange(dateFrom, dateTo)
+      return { ok: true, uuids }
+    } catch (err) {
+      fastify.log.warn({ err }, 'Error consultando UUIDs de Facturama')
+      return { ok: true, uuids: {}, warning: `No se pudieron obtener UUIDs: ${err.message}` }
+    }
   })
 }
