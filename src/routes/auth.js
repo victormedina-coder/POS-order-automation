@@ -2,6 +2,13 @@ import fp from 'fastify-plugin'
 import oauth2Plugin from '@fastify/oauth2'
 
 export default fp(async function authRoutes(fastify) {
+  // Saneamos BASE_URL: un espacio o slash final sobrante (fácil de meter al pegar en
+  // el dashboard de Railway) produce un redirect_uri mal formado → Google "Error 400:
+  // invalid_request". Quitamos espacios y slash final antes de construir el callback.
+  const baseUrl = (process.env.BASE_URL ?? '').trim().replace(/\/+$/, '')
+  const callbackUri = `${baseUrl}/auth/callback`
+  fastify.log.info(`Google OAuth callbackUri: "${callbackUri}"`)
+
   await fastify.register(oauth2Plugin, {
     name: 'googleOAuth2',
     scope: ['profile', 'email'],
@@ -13,7 +20,7 @@ export default fp(async function authRoutes(fastify) {
       auth: oauth2Plugin.GOOGLE_CONFIGURATION,
     },
     startRedirectPath: '/auth/google',
-    callbackUri: `${process.env.BASE_URL}/auth/callback`,
+    callbackUri,
   })
 
   fastify.get('/auth/callback', async (request, reply) => {

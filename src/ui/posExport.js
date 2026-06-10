@@ -291,18 +291,33 @@ function consultar() {
   document.getElementById('stats-row').classList.add('hidden')
   document.getElementById('results-section').classList.add('hidden')
 
-  fetch('/pos-export/preview', {
+  const previewPromise = fetch('/pos-export/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dateFrom, dateTo, storeName }),
-  })
-    .then(r => r.json())
-    .then(result => {
+  }).then(r => r.json())
+
+  const uuidsPromise = fetch(
+    `/pos-export/uuids?dateFrom=${dateFrom}&dateTo=${dateTo}`
+  ).then(r => r.json()).catch(() => ({ ok: true, uuids: {} }))
+
+  Promise.all([previewPromise, uuidsPromise])
+    .then(([result, uuidData]) => {
       setLoading(false)
       if (!result.ok) { showError(result.error); return }
+
       lastRows = result.rows
       renderStats(result.stats, storeName)
       renderUUIDFields(dateFrom, dateTo)
+
+      if (uuidData.ok && uuidData.uuids) {
+        for (const [date, uuid] of Object.entries(uuidData.uuids)) {
+          const input = document.getElementById(`uuid-${date}`)
+          if (input) input.value = uuid
+        }
+      }
+      if (uuidData.warning) showUUIDWarning(uuidData.warning)
+
       renderTable(result.rows)
       document.getElementById('btn-export').classList.remove('hidden')
     })
@@ -401,3 +416,14 @@ function setDownloading(v) {
 }
 function showError(msg) { const el = document.getElementById('error-banner'); el.textContent = msg; el.style.display = 'block' }
 function hideError() { document.getElementById('error-banner').style.display = 'none' }
+
+function showUUIDWarning(msg) {
+  let el = document.getElementById('uuid-warning')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'uuid-warning'
+    el.style.cssText = 'font-size:.75rem;color:var(--text-muted,#888);margin-top:.25rem'
+    document.getElementById('uuid-fields')?.after(el)
+  }
+  el.textContent = '⚠ ' + msg
+}

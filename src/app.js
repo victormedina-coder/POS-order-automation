@@ -8,7 +8,10 @@ import authRoutes from './routes/auth.js'
 import posExportRoutes from './routes/posExport.js'
 import catalogImportRoutes from './routes/catalogImport.js'
 
-const app = Fastify({ logger: true })
+// trustProxy: Railway termina el TLS en su proxy y reenvía HTTP a la app con
+// X-Forwarded-Proto: https. Sin esto, Fastify ve la conexión como HTTP y NO setea
+// la cookie de sesión `secure: true` → la sesión no persiste → loop de login.
+const app = Fastify({ logger: true, trustProxy: true })
 
 await app.register(cookie)
 await app.register(session, {
