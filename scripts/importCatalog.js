@@ -5,6 +5,7 @@ import path from 'path'
 import { parse } from 'csv-parse/sync'
 import { bulkUpsert } from '../src/services/catalog.js'
 import { runMigrations } from '../src/db/schema.js'
+import { normalizeRecords, EXPECTED_COLUMNS } from '../src/services/catalogNormalize.js'
 
 const args = process.argv.slice(2)
 const fileArg  = args[args.indexOf('--file')  + 1]
@@ -31,7 +32,8 @@ if (!existsSync(resolvedFile)) {
 runMigrations()
 
 const content = readFileSync(resolvedFile, 'utf-8')
-const records = parse(content, { columns: true, skip_empty_lines: true, trim: true })
+const raw = parse(content, { columns: true, skip_empty_lines: true, trim: true })
+const records = normalizeRecords(raw, tableArg)
 
 bulkUpsert(tableArg, records)
 console.log(`✓ ${records.length} registros importados en tabla "${tableArg}"`)

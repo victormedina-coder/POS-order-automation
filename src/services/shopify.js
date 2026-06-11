@@ -2,7 +2,7 @@ const SHOPIFY_STORE = process.env.SHOPIFY_STORE
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN
 const GRAPHQL_URL = `https://${SHOPIFY_STORE}/admin/api/2025-07/graphql.json`
 
-const ORDERS_QUERY = `
+const shopifyQuery = `
   query GetOrders($query: String!, $cursor: String) {
     orders(first: 50, query: $query, after: $cursor) {
       pageInfo { hasNextPage endCursor }
@@ -55,7 +55,7 @@ async function fetchAllOrders(queryStr) {
   let cursor = null
 
   do {
-    const data = await gqlRequest(ORDERS_QUERY, { query: queryStr, cursor })
+    const data = await gqlRequest(shopifyQuery, { query: queryStr, cursor })
     const { edges, pageInfo } = data.orders
 
     for (const { node } of edges) {
@@ -71,22 +71,16 @@ async function fetchAllOrders(queryStr) {
 // Patrón válido para un Shopify Global ID de tipo Order.
 const SHOPIFY_ORDER_GID = /^gid:\/\/shopify\/Order\/\d+$/
 
-async function fetchReturns(ordersWithReturns) {
-  const returnsMap = {}
-  const batchSize = 10
-
-  for (let i = 0; i < ordersWithReturns.length; i += batchSize) {
-    const batch = ordersWithReturns.slice(i, i + batchSize)
-
-    let queryStr = 'query GetReturns {'
-    let validCount = 0
-    for (let idx = 0; idx < batch.length; idx++) {
-      // Omitir cualquier ID que no tenga el formato esperado para evitar
-      if (!SHOPIFY_ORDER_GID.test(batch[idx].id)) {
-        continue
-      }
-      validCount++
-      queryStr += `
+/**
+ * Construye la query GraphQL batched para obtener devoluciones de un lote de pedidos.
+ * Filtra IDs inválidos según SHOPIFY_ORDER_GID.
+ * Retorna null si ningún ID del batch supera la validación.
+ */
+function buildReturnsBatchQuery(batch) {
+  const aliases = []
+  for (let idx = 0; idx < batch.length; idx++) {
+    if (!SHOPIFY_ORDER_GID.test(batch[idx].id)) continue
+    aliases.push(`
         o${idx}: order(id: "${batch[idx].id}") {
           id
           returns(first: 10) {
@@ -107,14 +101,23 @@ async function fetchReturns(ordersWithReturns) {
               }
             }
           }
-        }`
-    }
-    queryStr += '}'
+        }`)
+  }
+  if (aliases.length === 0) return null
+  return `query GetReturns {${aliases.join('')}}`
+}
 
-    // Si ningún ID del batch era válido, no hay nada que consultar.
-    if (validCount === 0) continue
+async function fetchReturns(returnedOrders) {
+  const returnsMap = {}
+  const batchSize = 10
 
-    const data = await gqlRequest(queryStr)
+  for (let i = 0; i < returnedOrders.length; i += batchSize) {
+    const batch = returnedOrders.slice(i, i + batchSize)
+
+    const query = buildReturnsBatchQuery(batch)
+    if (query === null) continue  // ningún ID válido en este batch
+
+    const data = await gqlRequest(query)
 
     for (const orderData of Object.values(data)) {
       if (!orderData?.id || !orderData.returns) continue
@@ -132,7 +135,8 @@ async function fetchReturns(ordersWithReturns) {
       returnsMap[orderData.id] = idsWithQty
     }
 
-    if (i + batchSize < ordersWithReturns.length) {
+    const isLastBatch = i + batchSize >= returnedOrders.length
+    if (!isLastBatch) {
       await new Promise(r => setTimeout(r, 500))
     }
   }
@@ -141,13 +145,13 @@ async function fetchReturns(ordersWithReturns) {
 }
 
 export async function fetchOrders(dateFrom, dateTo) {
-  const baseQuery = `created_at:>='${dateFrom}T00:00:00-06:00' created_at:<='${dateTo}T23:59:59-06:00' (financial_status:paid OR financial_status:partially_refunded OR financial_status:partially_paid)`
+  const dateRangeQuery = `created_at:>='${dateFrom}T00:00:00-06:00' created_at:<='${dateTo}T23:59:59-06:00' (financial_status:paid OR financial_status:partially_refunded OR financial_status:partially_paid)`
 
-  const allOrders = await fetchAllOrders(baseQuery)
-  const ordersWithReturns = await fetchAllOrders(baseQuery + ' return_status:returned')
+  const allOrders = await fetchAllOrders(dateRangeQuery)
+  const returnedOrders = await fetchAllOrders(dateRangeQuery + ' return_status:returned')
 
-  if (ordersWithReturns.length > 0) {
-    const returnsMap = await fetchReturns(ordersWithReturns)
+  if (returnedOrders.length > 0) {
+    const returnsMap = await fetchReturns(returnedOrders)
     for (const order of allOrders) {
       order.returnedLineItemIds = returnsMap[order.id] ?? {}
     }
