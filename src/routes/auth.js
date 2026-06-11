@@ -2,8 +2,6 @@ import fp from 'fastify-plugin'
 import oauth2Plugin from '@fastify/oauth2'
 
 export default fp(async function authRoutes(fastify) {
-  // Saneamos BASE_URL: un espacio o slash final sobrante (fácil de meter al pegar en
-  // el dashboard de Railway) produce un redirect_uri mal formado → Google "Error 400:
   // invalid_request". Quitamos espacios y slash final antes de construir el callback.
   const baseUrl = (process.env.BASE_URL ?? '').trim().replace(/\/+$/, '')
   const callbackUri = `${baseUrl}/auth/callback`
@@ -23,8 +21,18 @@ export default fp(async function authRoutes(fastify) {
     callbackUri,
   })
 
-  fastify.get('/auth/callback', async (request, reply) => {
-    const token = await fastify.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request)
+  // Límite estricto en el callback de OAuth para mitigar abuso de token
+  fastify.get('/auth/callback', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+
+    let token
+    try {
+      token = await fastify.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request)
+    } catch (err) {
+      fastify.log.warn({ err }, 'OAuth token exchange failed — posible state inválido o CSRF')
+      return reply.status(400).send({ error: 'Error en la autenticación. Intenta de nuevo.' })
+    }
 
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${token.token.access_token}` },
@@ -35,6 +43,20 @@ export default fp(async function authRoutes(fastify) {
     }
 
     const profile = await userRes.json()
+
+    // Validar dominio ANTES de escribir la sesión.
+    const allowedDomain = process.env.ALLOWED_DOMAIN
+    if (allowedDomain) {
+      const emailDomain = (profile.email ?? '').split('@')[1]
+      const hdMatch = !profile.hd || profile.hd === allowedDomain
+      if (emailDomain !== allowedDomain || !hdMatch) {
+        return reply.status(403).send({ error: 'Acceso denegado: dominio no autorizado' })
+      }
+    }
+
+    // Regenerar la sesión antes de escribir datos del usuario para prevenir session fixation.
+    await request.session.regenerate()
+
     request.session.user = {
       email: profile.email,
       name: profile.name,
