@@ -3,19 +3,24 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/app.js",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "start": "node --experimental-sqlite src/app.js",
     "dev": "node --experimental-sqlite --watch src/app.js",
     "import-catalog": "node scripts/importCatalog.js"
   },
   "dependencies": {
-    "fastify": "^5",
-    "@fastify/oauth2": "^8",
-    "@fastify/session": "^11",
     "@fastify/cookie": "^10",
+    "@fastify/helmet": "^13.0.2",
     "@fastify/multipart": "^9",
+    "@fastify/oauth2": "^8",
+    "@fastify/rate-limit": "^11.0.0",
+    "@fastify/session": "^11",
     "csv-parse": "^5",
     "dotenv": "^16",
+    "fastify": "^5",
     "fastify-plugin": "^5"
   }
 }

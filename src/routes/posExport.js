@@ -5,7 +5,7 @@ import { fetchOrders } from '../services/shopify.js'
 import { transformOrders } from '../services/posTransform.js'
 import { generateCSV } from '../services/csvGenerator.js'
 import { listLocations } from '../services/catalog.js'
-import { requireAuth } from '../middleware/requireAuth.js'
+import { requireAuth, requireXhr } from '../middleware/requireAuth.js'
 import { getUUIDsForRange, isFacturamaConfigured } from '../services/facturama.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -39,13 +39,20 @@ export default async function posExportRoutes(fastify) {
   })
 
   fastify.post('/pos-export/preview', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, requireXhr],
     schema: { body: BODY_SCHEMA },
   }, async (request, reply) => {
     const { dateFrom, dateTo, storeName } = request.body
 
     const orders = await fetchOrders(dateFrom, dateTo)
-    const { rows, stats } = transformOrders(orders, storeName)
+
+    let rows, stats
+    try {
+      ;({ rows, stats } = transformOrders(orders, storeName))
+    } catch (err) {
+      fastify.log.warn({ err, storeName }, 'Tienda no encontrada en transformOrders')
+      return reply.status(400).send({ ok: false, error: 'Tienda no encontrada en el catálogo' })
+    }
 
     if (rows.length === 0) {
       return reply.status(200).send({ ok: false, error: 'No se encontraron pedidos en este periodo' })
@@ -55,7 +62,7 @@ export default async function posExportRoutes(fastify) {
   })
 
   fastify.post('/pos-export/download', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, requireXhr],
     schema: {
       body: {
         type: 'object',
@@ -72,7 +79,15 @@ export default async function posExportRoutes(fastify) {
     const { dateFrom, dateTo, storeName, uuids = {} } = request.body
 
     const orders = await fetchOrders(dateFrom, dateTo)
-    const { rows } = transformOrders(orders, storeName)
+
+    // Igual que en /preview — capturar error de tienda no encontrada
+    let rows
+    try {
+      ;({ rows } = transformOrders(orders, storeName))
+    } catch (err) {
+      fastify.log.warn({ err, storeName }, 'Tienda no encontrada en transformOrders')
+      return reply.status(400).send({ ok: false, error: 'Tienda no encontrada en el catálogo' })
+    }
 
     if (rows.length === 0) {
       return reply.status(200).send({ ok: false, error: 'No se encontraron pedidos en este periodo' })
@@ -85,7 +100,10 @@ export default async function posExportRoutes(fastify) {
     }
 
     const csv = generateCSV(rows)
-    const filename = `netsuite_${storeName.replace(/\s+/g, '_')}_${dateFrom}_${dateTo}.csv`
+    // sanitizar storeName para el header Content-Disposition.
+    // Solo se permiten caracteres alfanuméricos, guion y guion bajo;
+    const safeStore = storeName.replace(/[^a-zA-Z0-9_-]/g, '_')
+    const filename = `netsuite_${safeStore}_${dateFrom}_${dateTo}.csv`
 
     return reply
       .header('Content-Type', 'text/csv; charset=utf-8')
@@ -116,8 +134,9 @@ export default async function posExportRoutes(fastify) {
       const uuids = await getUUIDsForRange(dateFrom, dateTo)
       return { ok: true, uuids }
     } catch (err) {
+      // Loguear el error completo en servidor, pero devolver al cliente un mensaje genérico
       fastify.log.warn({ err }, 'Error consultando UUIDs de Facturama')
-      return { ok: true, uuids: {}, warning: `No se pudieron obtener UUIDs: ${err.message}` }
+      return { ok: true, uuids: {}, warning: 'No se pudieron obtener los UUIDs de Facturama' }
     }
   })
 }

@@ -1,3 +1,15 @@
+// Función de escapado HTML para prevenir XSS almacenado y reflejado.
+// Cubre los cinco caracteres especiales de HTML; null/undefined → cadena vacía.
+function escapeHtml(str) {
+  if (str == null) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 const pad = n => String(n).padStart(2, '0')
 const now = new Date()
 const TODAY_STR = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
@@ -40,10 +52,11 @@ function csInit(id) {
 
 function csSetOptions(id, options) {
   const list = document.querySelector(`#${id} .cs-list`)
+  // opciones del servidor (nombres de sucursal) escapadas en atributo y texto.
   list.innerHTML = options.map(opt => `
-    <div class="cs-option" data-val="${opt}">
+    <div class="cs-option" data-val="${escapeHtml(opt)}">
       <span class="cs-check">✓</span>
-      <span>${opt}</span>
+      <span>${escapeHtml(opt)}</span>
     </div>
   `).join('')
   if (options.length) csSelect(id, options[0], false)
@@ -162,9 +175,14 @@ fetch('/auth/me')
       el.innerHTML = '<span class="nav-user-dot"></span><span>Dev mode</span>'
       return
     }
+    // user.picture se asigna como atributo (no interpolado en innerHTML)
+    // para evitar XSS vía URLs maliciosas. user.email se escapa con escapeHtml.
+    const imgHtml = user.picture
+      ? (() => { const img = document.createElement('img'); img.src = user.picture; img.alt = ''; return img.outerHTML })()
+      : '<span class="nav-user-dot"></span>'
     el.innerHTML = `
-      ${user.picture ? `<img src="${user.picture}" alt="">` : '<span class="nav-user-dot"></span>'}
-      <span>${user.email}</span>
+      ${imgHtml}
+      <span>${escapeHtml(user.email)}</span>
       <a href="/auth/logout" class="nav-logout" title="Cerrar sesión"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M14 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/><path d="M9 12h12l-3-3m0 6l3-3"/></g></svg></a>
     `
   })
@@ -226,9 +244,10 @@ function renderCatalogTable(id, rows, cols) {
   document.getElementById(`count-${id}`).textContent = rows?.length ?? 0
   const el = document.getElementById(`table-${id}`)
   if (!rows?.length) { el.innerHTML = '<div class="catalog-empty">Sin registros</div>'; return }
+  // columnas y celdas escapadas para prevenir XSS almacenado vía datos del catálogo.
   el.innerHTML = `<table>
-    <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(row => `<tr>${cols.map(c => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+    <thead><tr>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(row => `<tr>${cols.map(c => `<td>${escapeHtml(row[c])}</td>`).join('')}</tr>`).join('')}</tbody>
   </table>`
 }
 
@@ -237,7 +256,7 @@ async function clearCatalog(table) {
   if (!confirm(`¿Eliminar todos los registros de "${labels[table]}"?`)) return
 
   try {
-    const res = await fetch(`/catalog/clear?table=${table}`, { method: 'DELETE' })
+    const res = await fetch(`/catalog/clear?table=${table}`, { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } })  // H-6
     const data = await res.json()
     if (data.ok) { catalogLoaded = false; loadCatalog() }
   } catch (e) {
@@ -257,7 +276,9 @@ async function importCatalog() {
   const formData = new FormData(); formData.append('file', fileInput.files[0])
 
   try {
-    const res = await fetch(`/catalog/import?table=${table}`, { method: 'POST', body: formData })
+    // X-Requested-With se incluye sin Content-Type para que el navegador
+    // establezca automáticamente el boundary correcto de multipart/form-data.
+    const res = await fetch(`/catalog/import?table=${table}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: formData })
     const data = await res.json()
     if (data.ok) {
       statusEl.textContent = `✓ ${data.imported} registros importados`
@@ -293,7 +314,7 @@ function consultar() {
 
   const previewPromise = fetch('/pos-export/preview', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     body: JSON.stringify({ dateFrom, dateTo, storeName }),
   }).then(r => r.json())
 
@@ -334,7 +355,7 @@ function descargar() {
 
   fetch('/pos-export/download', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     body: JSON.stringify({ dateFrom, dateTo, storeName, uuids }),
   })
     .then(async res => {
@@ -351,10 +372,11 @@ function descargar() {
 }
 
 function renderStats(stats, store) {
+  // stats vienen de la API; store viene del DOM (select) pero se escapa por consistencia.
   document.getElementById('stats-row').innerHTML = `
-    <div class="stat"><span class="stat-val">${stats.totalOrders}</span><span class="stat-lbl">Pedidos</span></div>
-    <div class="stat"><span class="stat-val">${stats.totalLines}</span><span class="stat-lbl">Líneas</span></div>
-    <div class="stat"><span class="stat-val" style="font-size:1rem;padding-top:.3rem">${store}</span><span class="stat-lbl">Sucursal</span></div>
+    <div class="stat"><span class="stat-val">${escapeHtml(stats.totalOrders)}</span><span class="stat-lbl">Pedidos</span></div>
+    <div class="stat"><span class="stat-val">${escapeHtml(stats.totalLines)}</span><span class="stat-lbl">Líneas</span></div>
+    <div class="stat"><span class="stat-val" style="font-size:1rem;padding-top:.3rem">${escapeHtml(store)}</span><span class="stat-lbl">Sucursal</span></div>
   `
   document.getElementById('stats-row').classList.remove('hidden')
   document.getElementById('empty-state').classList.add('hidden')
@@ -398,9 +420,10 @@ function renderTable(rows) {
   const preview = rows.slice(0, 50)
   const note = rows.length > 50
     ? `<div class="table-note">Mostrando 50 de ${rows.length} líneas — el CSV incluye todas</div>` : ''
+  // encabezados y celdas de pedidos Shopify escapados para prevenir XSS reflejado.
   document.getElementById('table-wrap').innerHTML =
-    `<table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-     <tbody>${preview.map(row => `<tr>${headers.map(h => `<td>${row[h] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+    `<table><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+     <tbody>${preview.map(row => `<tr>${headers.map(h => `<td>${escapeHtml(row[h])}</td>`).join('')}</tr>`).join('')}</tbody>
      </table>${note}`
   switchResults('pedidos')
   document.getElementById('results-section').classList.remove('hidden')

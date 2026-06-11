@@ -1,4 +1,4 @@
-import { requireAuth } from '../middleware/requireAuth.js'
+import { requireAuth, requireXhr } from '../middleware/requireAuth.js'
 import { bulkUpsert, clearTable, listAllItems, listAllLocations, listAllPaymentMethods } from '../services/catalog.js'
 import { parse } from 'csv-parse/sync'
 
@@ -71,7 +71,7 @@ export default async function catalogImportRoutes(fastify) {
     return { paymentMethods: listAllPaymentMethods() }
   })
 
-  fastify.delete('/catalog/clear', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.delete('/catalog/clear', { preHandler: [requireAuth, requireXhr] }, async (request, reply) => {  // H-6: CSRF defense
     const table = request.query.table
     if (!EXPECTED_COLUMNS[table]) {
       return reply.status(400).send({ error: 'Parámetro table debe ser "items", "locations" o "payment_methods"' })
@@ -80,30 +80,69 @@ export default async function catalogImportRoutes(fastify) {
     return { ok: true, table }
   })
 
-  fastify.post('/catalog/import', { preHandler: requireAuth }, async (request, reply) => {
+  // mimetypes aceptados para importación CSV. Se acepta también por extensión .csv
+  // porque algunos navegadores/SO (p.ej. Windows + Chrome) reportan un CSV legítimo
+  // como application/octet-stream o cadena vacía. La validación real es el parseo.
+  const ALLOWED_MIME = new Set([
+    'text/csv', 'application/vnd.ms-excel', 'text/plain',
+    'application/csv', 'application/octet-stream', '',
+  ])
+  const isAllowedCsv = (data) =>
+    ALLOWED_MIME.has(data.mimetype) || /\.csv$/i.test(data.filename ?? '')
+
+  // Límite más estricto en import (10/min) para evitar abuso de carga de archivos
+  fastify.post('/catalog/import', {
+    preHandler: [requireAuth, requireXhr],  // H-6: CSRF defense
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const table = request.query.table
 
     if (!EXPECTED_COLUMNS[table]) {
       return reply.status(400).send({ error: 'Parámetro table debe ser "items", "locations" o "payment_methods"' })
     }
 
-    const data = await request.file()
+    let data
+    try {
+      data = await request.file()
+    } catch (err) {
+      // @fastify/multipart lanza un error con código FST_REQ_FILE_TOO_LARGE cuando
+      // se supera el límite configurado en app.js.
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.status(413).send({ error: 'El archivo supera el tamaño máximo permitido (5 MB)' })
+      }
+      return reply.status(400).send({ error: 'Error procesando el archivo' })
+    }
+
     if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
+
+    // validar que sea CSV (por mimetype o por extensión) antes de leer el contenido.
+    if (!isAllowedCsv(data)) {
+      return reply.status(400).send({ error: 'Tipo de archivo no permitido. Se esperaba un archivo .csv' })
+    }
 
     const buffer = await data.toBuffer()
     const content = buffer.toString('utf-8')
 
     const raw = parse(content, { columns: true, skip_empty_lines: true, trim: true })
-    const records = normalizeRecords(raw, table)
 
-    if (records.length > 0) {
-      const keys = Object.keys(records[0])
-      const missing = EXPECTED_COLUMNS[table].filter(c => !keys.includes(c))
-      if (missing.length > 0) {
-        return reply.status(400).send({ error: `Columnas faltantes: ${missing.join(', ')}` })
-      }
+    if (raw.length === 0) {
+      return reply.status(400).send({ error: 'El archivo CSV no contiene filas de datos' })
     }
 
+    // Validar los encabezados del CSV (ya normalizados) contra las columnas esperadas
+    // de la tabla seleccionada. Detecta el caso de elegir la tabla equivocada en el
+    // selector (p.ej. importar un CSV de pagos con la tabla "items"), que antes filtraba
+    // todas las filas y devolvía "0 importados" silenciosamente.
+    const headerKeys = Object.keys(raw[0]).map(k => normalizeKey(k, table))
+    const missing = EXPECTED_COLUMNS[table].filter(c => !headerKeys.includes(c))
+    if (missing.length > 0) {
+      return reply.status(400).send({
+        error: `El CSV no coincide con la tabla "${table}". Faltan columnas: ${missing.join(', ')}. `
+          + `Encabezados encontrados: ${Object.keys(raw[0]).join(', ')}`,
+      })
+    }
+
+    const records = normalizeRecords(raw, table)
     bulkUpsert(table, records)
     return { ok: true, imported: records.length, table }
   })

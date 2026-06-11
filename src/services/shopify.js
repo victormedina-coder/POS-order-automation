@@ -68,6 +68,9 @@ async function fetchAllOrders(queryStr) {
   return orders
 }
 
+// Patrón válido para un Shopify Global ID de tipo Order.
+const SHOPIFY_ORDER_GID = /^gid:\/\/shopify\/Order\/\d+$/
+
 async function fetchReturns(ordersWithReturns) {
   const returnsMap = {}
   const batchSize = 10
@@ -76,7 +79,13 @@ async function fetchReturns(ordersWithReturns) {
     const batch = ordersWithReturns.slice(i, i + batchSize)
 
     let queryStr = 'query GetReturns {'
+    let validCount = 0
     for (let idx = 0; idx < batch.length; idx++) {
+      // Omitir cualquier ID que no tenga el formato esperado para evitar
+      if (!SHOPIFY_ORDER_GID.test(batch[idx].id)) {
+        continue
+      }
+      validCount++
       queryStr += `
         o${idx}: order(id: "${batch[idx].id}") {
           id
@@ -101,6 +110,9 @@ async function fetchReturns(ordersWithReturns) {
         }`
     }
     queryStr += '}'
+
+    // Si ningún ID del batch era válido, no hay nada que consultar.
+    if (validCount === 0) continue
 
     const data = await gqlRequest(queryStr)
 
