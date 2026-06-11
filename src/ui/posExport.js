@@ -450,3 +450,33 @@ function showUUIDWarning(msg) {
   }
   el.textContent = '⚠ ' + msg
 }
+
+// ════════════════════════════════════════════════════════
+// EVENT LISTENERS — registrados aquí en lugar de onclick=
+// en el HTML, lo que permite endurecer la CSP eliminando
+// script-src-attr: 'unsafe-inline'.
+// ════════════════════════════════════════════════════════
+
+// Nav tabs (Exportar POS / Catálogo)
+document.querySelectorAll('.nav-tab').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab))
+})
+
+// Botones de resultados (Pedidos / UUID)
+document.querySelectorAll('.results-tab').forEach(btn => {
+  btn.addEventListener('click', () => switchResults(btn.dataset.panel))
+})
+
+// Consultar pedidos
+document.getElementById('btn-consultar').addEventListener('click', consultar)
+
+// Descargar CSV
+document.getElementById('btn-export').addEventListener('click', descargar)
+
+// Importar catálogo
+document.getElementById('btn-import').addEventListener('click', importCatalog)
+
+// Limpiar tabla (los 3 botones de papelera usan data-clear-table)
+document.querySelectorAll('[data-clear-table]').forEach(btn => {
+  btn.addEventListener('click', () => clearCatalog(btn.dataset.clearTable))
+})

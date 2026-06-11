@@ -1,62 +1,12 @@
 import { requireAuth, requireXhr } from '../middleware/requireAuth.js'
 import { bulkUpsert, clearTable, listAllItems, listAllLocations, listAllPaymentMethods } from '../services/catalog.js'
 import { parse } from 'csv-parse/sync'
-
-const EXPECTED_COLUMNS = {
-  items:           ['sku', 'internal_id'],
-  locations:       ['store_name', 'oracle_location', 'rep_id', 'shopify_location'],
-  payment_methods: ['clave', 'payment_type'],
-}
-
-// Aliases: nombre real en el CSV → nombre esperado internamente
-const COLUMN_ALIASES = {
-  items: {
-    'upc code': 'sku',
-    'upc_code': 'sku',
-    'upc':      'sku',
-  },
-  locations: {
-    'stores':           'store_name',
-    'store':            'store_name',
-    'oracle location':  'oracle_location',
-    'rep id':           'rep_id',
-    'shopify location': 'shopify_location',
-  },
-  payment_methods: {
-    'payment type': 'payment_type',
-    'clave':        'clave',
-  },
-}
-
-/**
- * Normaliza el nombre de una columna:
- * - Trim + lowercase + espacios a guiones bajos
- * - Aplica aliases específicos por tabla
- */
-function normalizeKey(key, table) {
-  const normalized = key.trim().toLowerCase().replace(/\s+/g, '_')
-  return COLUMN_ALIASES[table]?.[normalized] ?? normalized
-}
-
-/**
- * Normaliza las claves de todos los registros y filtra:
- * - Columnas con clave vacía (artefactos de Excel/Sheets)
- * - Filas donde todos los valores requeridos están vacíos
- */
-function normalizeRecords(records, table) {
-  const required = EXPECTED_COLUMNS[table]
-
-  return records
-    .map(row => {
-      const normalized = {}
-      for (const [k, v] of Object.entries(row)) {
-        const key = normalizeKey(k, table)
-        if (key) normalized[key] = v
-      }
-      return normalized
-    })
-    .filter(row => required.some(col => row[col] && String(row[col]).trim() !== ''))
-}
+import {
+  EXPECTED_COLUMNS,
+  COLUMN_ALIASES,  // re-exportado por si algún consumidor lo necesita
+  normalizeKey,
+  normalizeRecords,
+} from '../services/catalogNormalize.js'
 
 export default async function catalogImportRoutes(fastify) {
   fastify.get('/catalog/items', { preHandler: requireAuth }, async (_req, reply) => {

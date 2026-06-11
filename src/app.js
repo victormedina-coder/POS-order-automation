@@ -42,15 +42,18 @@ await app.register(helmet, {
     directives: {
       defaultSrc:  ["'self'"],
       scriptSrc:   ["'self'", "'unsafe-inline'"],
-      // script-src-attr controla los manejadores inline (onclick=, etc.).
-      // Helmet lo pone en 'none' por defecto; la UI usa onclick en el HTML.
-      scriptSrcAttr: ["'unsafe-inline'"],
+      // scriptSrcAttr omitido → Helmet aplica su default 'none'.
+      // La UI ya no usa onclick= inline; todos los listeners están en posExport.js.
       styleSrc:    ["'self'", "'unsafe-inline'"],
       imgSrc:      ["'self'", 'https://lh3.googleusercontent.com', 'data:'],
       connectSrc:  ["'self'"],
       fontSrc:     ["'self'"],
       objectSrc:   ["'none'"],
       frameAncestors: ["'none'"],
+      // Helmet activa upgrade-insecure-requests por defecto. En local (HTTP) eso
+      // reescribe enlaces como /auth/google a https://localhost y los rompe.
+      // Solo tiene sentido en producción (Railway sirve por HTTPS).
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
     },
   },
 })

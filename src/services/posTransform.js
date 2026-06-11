@@ -33,12 +33,26 @@ function formatDateCST(isoString) {
   return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
 }
 
+// Factor de IVA México (16 %)
+const IVA_FACTOR = 1.16
+
+/**
+ * Transforma los pedidos Shopify en filas CSV para NetSuite.
+ *
+ * Retorna { rows, stats, errors }.
+ * - rows:   array de objetos con las columnas del CSV.
+ * - stats:  { totalOrders, totalLines }.
+ * - errors: array de { orderName, message } — errores por orden (no bloquean el resto).
+ *
+ * Lanza si la tienda no existe en catalog_locations.
+ */
 export function transformOrders(orders, storeName) {
   const store = getLocationConfig(storeName)
   if (!store) throw new Error(`Tienda '${storeName}' no encontrada en catalog_locations`)
 
   const paymentMethods = getPaymentMethods()
   const rows = []
+  const errors = []
 
   for (const order of orders) {
     try {
@@ -64,11 +78,13 @@ export function transformOrders(orders, storeName) {
         const internalId = getInternalId(sku)
         if (!internalId) continue
 
-        const unitPrice = parseFloat(li.originalUnitPriceSet.shopMoney.amount)
-        const totalDiscount = li.discountAllocations.reduce(
+        const unitPrice      = parseFloat(li.originalUnitPriceSet.shopMoney.amount)
+        const totalDiscount  = li.discountAllocations.reduce(
           (sum, d) => sum + parseFloat(d.allocatedAmountSet.shopMoney.amount), 0
         )
-        const netPrice = ((unitPrice - totalDiscount / li.quantity) / 1.16).toFixed(6)
+        const discountPerUnit    = totalDiscount / li.quantity
+        const priceAfterDiscount = unitPrice - discountPerUnit
+        const netPrice           = (priceAfterDiscount / IVA_FACTOR).toFixed(6)
 
         rows.push({
           'Order Date': orderDate,
@@ -84,7 +100,7 @@ export function transformOrders(orders, storeName) {
         })
       }
     } catch (e) {
-      console.error(`Error en orden ${order.name}:`, e.message)
+      errors.push({ orderName: order.name, message: e.message })
     }
   }
 
@@ -93,5 +109,5 @@ export function transformOrders(orders, storeName) {
     totalLines: rows.length,
   }
 
-  return { rows, stats }
+  return { rows, stats, errors }
 }

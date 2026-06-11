@@ -9,6 +9,22 @@ function normalizeSku(raw) {
 }
 
 /**
+ * Ejecuta fn(db) dentro de una transacción BEGIN/COMMIT.
+ * Si fn lanza, hace ROLLBACK y re-lanza.
+ * node:sqlite es síncrono, por lo que fn es síncrona también.
+ */
+function withTransaction(fn) {
+  db.exec('BEGIN')
+  try {
+    fn(db)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+}
+
+/**
  * Busca el Internal ID de NetSuite por SKU/UPC. Retorna null si no existe.
  */
 export function getInternalId(sku) {
@@ -22,9 +38,11 @@ export function getInternalId(sku) {
  * Retorna null si no existe.
  */
 export function getLocationConfig(shopifyLocation) {
-  const rows = db.prepare('SELECT * FROM catalog_locations').all()
   const target = String(shopifyLocation).toLowerCase().trim()
-  return rows.find(r => String(r.shopify_location).toLowerCase().trim() === target) ?? null
+  const row = db
+    .prepare('SELECT * FROM catalog_locations WHERE LOWER(shopify_location) = ?')
+    .get(target)
+  return row ?? null
 }
 
 /**
@@ -88,16 +106,11 @@ export function bulkUpsert(table, rows) {
     const insert = db.prepare(
       'INSERT OR REPLACE INTO catalog_items (sku, internal_id) VALUES (?, ?)'
     )
-    db.exec('BEGIN')
-    try {
+    withTransaction(() => {
       for (const item of rows) {
         insert.run(normalizeSku(item.sku), item.internal_id)
       }
-      db.exec('COMMIT')
-    } catch (e) {
-      db.exec('ROLLBACK')
-      throw e
-    }
+    })
     return
   }
 
@@ -106,17 +119,12 @@ export function bulkUpsert(table, rows) {
       INSERT INTO catalog_locations (store_name, oracle_location, rep_id, shopify_location)
       VALUES (?, ?, ?, ?)
     `)
-    db.exec('BEGIN')
-    try {
+    withTransaction(() => {
       db.exec('DELETE FROM catalog_locations')
       for (const item of rows) {
         insert.run(item.store_name, item.oracle_location, item.rep_id, item.shopify_location)
       }
-      db.exec('COMMIT')
-    } catch (e) {
-      db.exec('ROLLBACK')
-      throw e
-    }
+    })
     return
   }
 
@@ -124,15 +132,10 @@ export function bulkUpsert(table, rows) {
     const insert = db.prepare(
       'INSERT OR REPLACE INTO catalog_payment_methods (clave, payment_type) VALUES (?, ?)'
     )
-    db.exec('BEGIN')
-    try {
+    withTransaction(() => {
       for (const item of rows) {
         insert.run(String(item.clave), String(item.payment_type).trim())
       }
-      db.exec('COMMIT')
-    } catch (e) {
-      db.exec('ROLLBACK')
-      throw e
-    }
+    })
   }
 }

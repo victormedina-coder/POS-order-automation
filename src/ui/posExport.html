@@ -317,8 +317,8 @@
 <nav class="navbar">
   <div class="nav-logo">SHOPIFY → NETSUITE</div>
   <div class="nav-tabs">
-    <button class="nav-tab active" data-tab="export" onclick="switchTab('export')">Exportar POS</button>
-    <button class="nav-tab" data-tab="catalog" onclick="switchTab('catalog')">Catálogo</button>
+    <button class="nav-tab active" data-tab="export">Exportar POS</button>
+    <button class="nav-tab" data-tab="catalog">Catálogo</button>
   </div>
   <div class="nav-user" id="nav-user"></div>
 </nav>
@@ -403,8 +403,8 @@
 
       <div class="filter-sep"></div>
       <div class="filter-actions">
-        <button class="btn btn-primary" id="btn-consultar" onclick="consultar()">Consultar pedidos</button>
-        <button class="btn btn-export hidden" id="btn-export" onclick="descargar()">↓ Descargar CSV</button>
+        <button class="btn btn-primary" id="btn-consultar">Consultar pedidos</button>
+        <button class="btn btn-export hidden" id="btn-export">↓ Descargar CSV</button>
       </div>
     </div>
 
@@ -419,8 +419,8 @@
     <!-- Results: Pedidos / UUID tabs -->
     <div class="results-section hidden" id="results-section">
       <div class="results-tabs">
-        <button class="results-tab active" data-panel="pedidos" onclick="switchResults('pedidos')">Pedidos</button>
-        <button class="results-tab" data-panel="uuid" onclick="switchResults('uuid')">UUID</button>
+        <button class="results-tab active" data-panel="pedidos">Pedidos</button>
+        <button class="results-tab" data-panel="uuid">UUID</button>
       </div>
       <div id="panel-pedidos" class="panel-pedidos">
         <div id="table-wrap"></div>
@@ -449,7 +449,7 @@
         <label class="label">Archivo CSV</label>
         <input type="file" id="import-file" accept=".csv" />
       </div>
-      <button class="btn btn-import" id="btn-import" onclick="importCatalog()">↑ Importar</button>
+      <button class="btn btn-import" id="btn-import">↑ Importar</button>
       <span class="import-status" id="import-status"></span>
     </div>
 
@@ -458,7 +458,7 @@
         <div class="catalog-card-header">
           <span class="catalog-card-title">Items</span>
           <span class="count-badge" id="count-items">—</span>
-          <button class="btn btn-danger" onclick="clearCatalog('items')" title="Limpiar tabla">
+          <button class="btn btn-danger" data-clear-table="items" title="Limpiar tabla">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
           </button>
         </div>
@@ -470,7 +470,7 @@
         <div class="catalog-card-header">
           <span class="catalog-card-title">Sucursales</span>
           <span class="count-badge" id="count-locations">—</span>
-          <button class="btn btn-danger" onclick="clearCatalog('locations')" title="Limpiar tabla">
+          <button class="btn btn-danger" data-clear-table="locations" title="Limpiar tabla">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
           </button>
         </div>
@@ -482,7 +482,7 @@
         <div class="catalog-card-header">
           <span class="catalog-card-title">Métodos de pago</span>
           <span class="count-badge" id="count-payment-methods">—</span>
-          <button class="btn btn-danger" onclick="clearCatalog('payment_methods')" title="Limpiar tabla">
+          <button class="btn btn-danger" data-clear-table="payment_methods" title="Limpiar tabla">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
           </button>
         </div>

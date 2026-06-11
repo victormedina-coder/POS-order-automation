@@ -1,12 +1,21 @@
+// Singleton lazy: evita recomputar el authHeader (Buffer+base64) en cada llamada.
+// Las env vars son inmutables en producción, por lo que este caché es seguro.
+let _config = undefined
+
 function getConfig() {
+  if (_config !== undefined) return _config
   const user    = process.env.FACTURAMA_USER
   const pass    = process.env.FACTURAMA_PASS
   const baseUrl = process.env.FACTURAMA_BASE_URL
-  if (!user || !pass || !baseUrl) return null
-  return {
+  if (!user || !pass || !baseUrl) {
+    _config = null
+    return null
+  }
+  _config = {
     baseUrl,
     authHeader: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
   }
+  return _config
 }
 
 export function isFacturamaConfigured() {
@@ -113,6 +122,9 @@ function hoyISO() {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Tamaño de batch para las llamadas paralelas al detalle de cada CFDI global.
+const DETAIL_BATCH_SIZE = 5
+
 // Devuelve un mapa { "YYYY-MM-DD": "UUID" } de la FACTURA GLOBAL de cada fecha de venta
 // dentro del rango [dateFrom, dateTo].
 //
@@ -121,8 +133,11 @@ function hoyISO() {
 //  - Las globales se emiten DESPUÉS de la venta (a veces días después): la del 1-jun
 //    puede emitirse el 8-jun. Por eso la ventana de emisión se amplía hasta HOY.
 //  - Solo cuentan las globales (Rfc == XAXX010101000); las facturas de clientes se descartan.
+//  - Si un detalle falla (rejected), se omite esa global sin bloquear las demás.
+//  - Primera global que mapea a una fecha gana si hay duplicados.
 export async function getUUIDsForRange(dateFrom, dateTo) {
-  if (!isFacturamaConfigured()) return {}
+  const cfg = getConfig()
+  if (!cfg) return {}  // Facturama no configurado — el caller recibe mapa vacío
 
   // Ventana de emisión amplia: desde la primera fecha de venta hasta hoy (no se puede
   // emitir en el futuro). Captura globales emitidas con retraso respecto a la venta.
@@ -132,20 +147,29 @@ export async function getUUIDsForRange(dateFrom, dateTo) {
   // Filtrar a globales ANTES de pedir detalle (minimiza llamadas a la API).
   const globales = cfdis.filter(c => (c.Rfc ?? c.Receiver?.Rfc) === GLOBAL_RFC)
 
+  // Extraer UUIDs válidos de las globales
+  const uuidEntries = globales
+    .map(g => g.Uuid ?? g.Complement?.TaxStamp?.Uuid ?? null)
+    .filter(Boolean)
+
+  // Obtener detalles en batches paralelos de DETAIL_BATCH_SIZE
   const map = {}
-  for (const g of globales) {
-    const uuid = g.Uuid ?? g.Complement?.TaxStamp?.Uuid ?? null
-    if (!uuid) continue
-    let det
-    try {
-      det = await obtenerCFDI(uuid)
-    } catch {
-      continue // si el detalle falla, se omite esa global (no bloquea el resto)
+  for (let i = 0; i < uuidEntries.length; i += DETAIL_BATCH_SIZE) {
+    const batchUuids = uuidEntries.slice(i, i + DETAIL_BATCH_SIZE)
+    const results = await Promise.allSettled(batchUuids.map(uuid => obtenerCFDI(uuid)))
+
+    for (let j = 0; j < results.length; j++) {
+      if (results[j].status === 'rejected') continue  // detalle fallido — se omite
+
+      const det = results[j].value
+      const fechaVenta = parseObservacionesDate(det.Observations)
+      if (!fechaVenta) continue                       // Observations vacío o ilegible
+      if (fechaVenta < dateFrom || fechaVenta > dateTo) continue // fuera del rango pedido
+
+      const uuid = batchUuids[j]
+      if (!map[fechaVenta]) map[fechaVenta] = uuid    // primera global gana si hay duplicados
     }
-    const fechaVenta = parseObservacionesDate(det.Observations)
-    if (!fechaVenta) continue                       // Observations vacío o ilegible
-    if (fechaVenta < dateFrom || fechaVenta > dateTo) continue // fuera del rango pedido
-    if (!map[fechaVenta]) map[fechaVenta] = uuid    // primera global gana si hay duplicados
   }
+
   return map
 }

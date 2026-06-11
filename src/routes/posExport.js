@@ -6,20 +6,32 @@ import { transformOrders } from '../services/posTransform.js'
 import { generateCSV } from '../services/csvGenerator.js'
 import { listLocations } from '../services/catalog.js'
 import { requireAuth, requireXhr } from '../middleware/requireAuth.js'
-import { getUUIDsForRange, isFacturamaConfigured } from '../services/facturama.js'
+import { getUUIDsForRange } from '../services/facturama.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UI_PATH = path.join(__dirname, '../ui/posExport.html')
 const JS_PATH = path.join(__dirname, '../ui/posExport.js')
 
-const BODY_SCHEMA = {
-  type: 'object',
-  required: ['dateFrom', 'dateTo', 'storeName'],
-  properties: {
-    dateFrom:  { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-    dateTo:    { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-    storeName: { type: 'string', minLength: 1 },
-  },
+// Propiedades de rango de fechas y tienda compartidas por /preview y /download
+const DATE_RANGE_SCHEMA = {
+  dateFrom:  { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+  dateTo:    { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+  storeName: { type: 'string', minLength: 1 },
+}
+
+/**
+ * Obtiene pedidos de Shopify y los transforma para la tienda indicada.
+ * - Si la tienda no existe lanza (el caller responde 400).
+ * - Loguea advertencias por errores por orden usando fastify.log.warn.
+ * Retorna { rows, stats }.
+ */
+async function fetchAndTransform(fastify, dateFrom, dateTo, storeName) {
+  const orders = await fetchOrders(dateFrom, dateTo)
+  const { rows, stats, errors } = transformOrders(orders, storeName)
+  if (errors.length > 0) {
+    fastify.log.warn({ errors, storeName }, 'Errores por orden en transformOrders')
+  }
+  return { rows, stats }
 }
 
 export default async function posExportRoutes(fastify) {
@@ -40,15 +52,19 @@ export default async function posExportRoutes(fastify) {
 
   fastify.post('/pos-export/preview', {
     preHandler: [requireAuth, requireXhr],
-    schema: { body: BODY_SCHEMA },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['dateFrom', 'dateTo', 'storeName'],
+        properties: DATE_RANGE_SCHEMA,
+      },
+    },
   }, async (request, reply) => {
     const { dateFrom, dateTo, storeName } = request.body
 
-    const orders = await fetchOrders(dateFrom, dateTo)
-
     let rows, stats
     try {
-      ;({ rows, stats } = transformOrders(orders, storeName))
+      ;({ rows, stats } = await fetchAndTransform(fastify, dateFrom, dateTo, storeName))
     } catch (err) {
       fastify.log.warn({ err, storeName }, 'Tienda no encontrada en transformOrders')
       return reply.status(400).send({ ok: false, error: 'Tienda no encontrada en el catálogo' })
@@ -68,22 +84,17 @@ export default async function posExportRoutes(fastify) {
         type: 'object',
         required: ['dateFrom', 'dateTo', 'storeName'],
         properties: {
-          dateFrom:  { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-          dateTo:    { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-          storeName: { type: 'string', minLength: 1 },
-          uuids:     { type: 'object' },
+          ...DATE_RANGE_SCHEMA,
+          uuids: { type: 'object' },
         },
       },
     },
   }, async (request, reply) => {
     const { dateFrom, dateTo, storeName, uuids = {} } = request.body
 
-    const orders = await fetchOrders(dateFrom, dateTo)
-
-    // Igual que en /preview — capturar error de tienda no encontrada
     let rows
     try {
-      ;({ rows } = transformOrders(orders, storeName))
+      ;({ rows } = await fetchAndTransform(fastify, dateFrom, dateTo, storeName))
     } catch (err) {
       fastify.log.warn({ err, storeName }, 'Tienda no encontrada en transformOrders')
       return reply.status(400).send({ ok: false, error: 'Tienda no encontrada en el catálogo' })
@@ -126,12 +137,13 @@ export default async function posExportRoutes(fastify) {
   }, async (request, reply) => {
     const { dateFrom, dateTo } = request.query
 
-    if (!isFacturamaConfigured()) {
-      return { ok: true, uuids: {}, warning: 'Facturama no configurado — UUID manual requerido' }
-    }
-
+    // getUUIDsForRange retorna {} directamente si Facturama no está configurado,
+    // por lo que no se necesita guard previo con isFacturamaConfigured().
     try {
       const uuids = await getUUIDsForRange(dateFrom, dateTo)
+      if (Object.keys(uuids).length === 0 && !process.env.FACTURAMA_USER) {
+        return { ok: true, uuids: {}, warning: 'Facturama no configurado — UUID manual requerido' }
+      }
       return { ok: true, uuids }
     } catch (err) {
       // Loguear el error completo en servidor, pero devolver al cliente un mensaje genérico
