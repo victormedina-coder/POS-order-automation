@@ -1,4 +1,5 @@
 import { getInternalId, getLocationConfig, getPaymentMethods } from './catalog.js'
+import { getDefaultBrand } from '../config/brands.js'
 
 const VALID_STATUSES = new Set(['PAID', 'PARTIALLY_REFUNDED', 'PARTIALLY_PAID'])
 
@@ -46,11 +47,12 @@ const IVA_FACTOR = 1.16
  *
  * Lanza si la tienda no existe en catalog_locations.
  */
-export function transformOrders(orders, storeName) {
-  const store = getLocationConfig(storeName)
+export function transformOrders(orders, storeName, brand) {
+  const b = brand ?? getDefaultBrand()
+  const store = getLocationConfig(storeName, b)
   if (!store) throw new Error(`Tienda '${storeName}' no encontrada en catalog_locations`)
 
-  const paymentMethods = getPaymentMethods()
+  const paymentMethods = getPaymentMethods(b)
   const rows = []
   const errors = []
 
@@ -75,7 +77,7 @@ export function transformOrders(orders, storeName) {
         if (effectiveQty <= 0) continue
 
         const sku = (li.sku ?? '').trim()
-        const internalId = getInternalId(sku)
+        const internalId = getInternalId(sku, b)
         if (!internalId) continue
 
         const unitPrice      = parseFloat(li.originalUnitPriceSet.shopMoney.amount)

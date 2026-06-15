@@ -1,7 +1,8 @@
 import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import path from 'path'
-import { fetchOrders } from '../services/shopify.js'
+import { createShopifyClient } from '../services/shopify.js'
+import { getBrandConfig, listEnabledBrands } from '../config/brands.js'
 import { transformOrders } from '../services/posTransform.js'
 import { generateCSV } from '../services/csvGenerator.js'
 import { listLocations } from '../services/catalog.js'
@@ -17,6 +18,8 @@ const DATE_RANGE_SCHEMA = {
   dateFrom:  { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
   dateTo:    { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
   storeName: { type: 'string', minLength: 1 },
+  // brand es OPCIONAL — la UI aún no lo manda (Etapa 5); sin él cae al default (Ariat).
+  brand:     { type: 'string' },
 }
 
 /**
@@ -24,12 +27,20 @@ const DATE_RANGE_SCHEMA = {
  * - Si la tienda no existe lanza (el caller responde 400).
  * - Loguea advertencias por errores por orden usando fastify.log.warn.
  * Retorna { rows, stats }.
+ *
+ * @param {object}          fastify
+ * @param {string}          dateFrom
+ * @param {string}          dateTo
+ * @param {string}          storeName
+ * @param {string|null}     brand     Clave de marca (null → usa default por contrato de getBrandConfig)
  */
-async function fetchAndTransform(fastify, dateFrom, dateTo, storeName) {
-  const orders = await fetchOrders(dateFrom, dateTo)
-  const { rows, stats, errors } = transformOrders(orders, storeName)
+async function fetchAndTransform(fastify, dateFrom, dateTo, storeName, brand) {
+  const brandConfig = getBrandConfig(brand)   // lanza con prefijo [brands] si la marca es inválida
+  const shopify = createShopifyClient(brandConfig)
+  const orders = await shopify.fetchOrders(dateFrom, dateTo)
+  const { rows, stats, errors } = transformOrders(orders, storeName, brandConfig.key)
   if (errors.length > 0) {
-    fastify.log.warn({ errors, storeName }, 'Errores por orden en transformOrders')
+    fastify.log.warn({ errors, storeName, brand: brandConfig.key }, 'Errores por orden en transformOrders')
   }
   return { rows, stats }
 }
@@ -46,8 +57,13 @@ export default async function posExportRoutes(fastify) {
     return reply.type('text/html').send(html)
   })
 
-  fastify.get('/pos-export/locations', { preHandler: requireAuth }, async (_req, reply) => {
-    return { locations: listLocations() }
+  fastify.get('/pos-export/brands', { preHandler: requireAuth }, async (_req, reply) => {
+    return { brands: listEnabledBrands() }
+  })
+
+  fastify.get('/pos-export/locations', { preHandler: requireAuth }, async (request, reply) => {
+    const brand = request.query.brand ?? undefined
+    return { locations: listLocations(brand) }
   })
 
   fastify.post('/pos-export/preview', {
@@ -60,12 +76,16 @@ export default async function posExportRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    const { dateFrom, dateTo, storeName } = request.body
+    const { dateFrom, dateTo, storeName, brand } = request.body
 
     let rows, stats
     try {
-      ;({ rows, stats } = await fetchAndTransform(fastify, dateFrom, dateTo, storeName))
+      ;({ rows, stats } = await fetchAndTransform(fastify, dateFrom, dateTo, storeName, brand))
     } catch (err) {
+      if (err.message?.startsWith('[brands]')) {
+        fastify.log.warn({ err, brand }, 'Error de configuración de marca en /preview')
+        return reply.status(400).send({ ok: false, error: err.message })
+      }
       fastify.log.warn({ err, storeName }, 'Tienda no encontrada en transformOrders')
       return reply.status(400).send({ ok: false, error: 'Tienda no encontrada en el catálogo' })
     }
@@ -90,12 +110,16 @@ export default async function posExportRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    const { dateFrom, dateTo, storeName, uuids = {} } = request.body
+    const { dateFrom, dateTo, storeName, brand, uuids = {} } = request.body
 
     let rows
     try {
-      ;({ rows } = await fetchAndTransform(fastify, dateFrom, dateTo, storeName))
+      ;({ rows } = await fetchAndTransform(fastify, dateFrom, dateTo, storeName, brand))
     } catch (err) {
+      if (err.message?.startsWith('[brands]')) {
+        fastify.log.warn({ err, brand }, 'Error de configuración de marca en /download')
+        return reply.status(400).send({ ok: false, error: err.message })
+      }
       fastify.log.warn({ err, storeName }, 'Tienda no encontrada en transformOrders')
       return reply.status(400).send({ ok: false, error: 'Tienda no encontrada en el catálogo' })
     }
