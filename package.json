@@ -9,7 +9,9 @@
   "scripts": {
     "start": "node --experimental-sqlite src/app.js",
     "dev": "node --experimental-sqlite --watch src/app.js",
-    "import-catalog": "node scripts/importCatalog.js"
+    "import-catalog": "node scripts/importCatalog.js",
+    "test": "node --experimental-sqlite --test",
+    "test:watch": "node --experimental-sqlite --test --watch"
   },
   "dependencies": {
     "@fastify/cookie": "^10",
