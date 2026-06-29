@@ -219,7 +219,7 @@ describe('posTransform — transformación correcta de pedidos', () => {
     assert.equal(rows[0]['Net Price'], '90.000000')
   })
 
-  test('descarta line items cuyo SKU no tiene internal_id en el catálogo', () => {
+  test('línea sin match en catálogo se incluye con Internal ID = SIN_SKU (no se descarta)', () => {
     const orders = [
       makeOrder({
         name: '#2003',
@@ -230,9 +230,17 @@ describe('posTransform — transformación correcta de pedidos', () => {
         physicalLocationName: 'ariat_gdl',
       }),
     ]
-    const { rows } = transformOrders(orders, 'ariat_gdl', 'ariat')
-    assert.equal(rows.length, 1, 'Solo el item con SKU en catálogo debe aparecer')
-    assert.equal(rows[0]['Internal ID'], 'NS_A001')
+    const { rows, diagnostics } = transformOrders(orders, 'ariat_gdl', 'ariat')
+    assert.equal(rows.length, 2, 'Ambas líneas aparecen: la matcheada y la de fallback')
+
+    const matched  = rows.find(r => r['Internal ID'] === 'NS_A001')
+    const fallback = rows.find(r => r['Internal ID'] === 'SIN_SKU')
+    assert.ok(matched,  'el item con SKU en catálogo resuelve a su Internal ID')
+    assert.ok(fallback, 'el item sin match se incluye con el placeholder SIN_SKU')
+    // El fallback conserva precio y cantidad reales para el reemplazo manual posterior.
+    assert.equal(fallback['Item Qty'], 1)
+    assert.equal(fallback['Net Price'], (100 / 1.16).toFixed(6))
+    assert.equal(diagnostics.linesFallback, 1, 'el embudo registra la línea de fallback')
   })
 })
 
@@ -484,7 +492,7 @@ describe('posTransform — marca stetson correctamente aislada', () => {
     assert.equal(rows[0]['Payment Method UUID'], '01 - Efectivo Stetson')
   })
 
-  test('SKU de ariat no aparece en catálogo de stetson → línea descartada', () => {
+  test('SKU de ariat no se resuelve en catálogo de stetson → cae a SIN_SKU (no cruza marca)', () => {
     const orders = [
       makeOrder({
         name: '#S002',
@@ -495,6 +503,10 @@ describe('posTransform — marca stetson correctamente aislada', () => {
       }),
     ]
     const { rows } = transformOrders(orders, 'stetson_mty', 'stetson')
-    assert.equal(rows.length, 0, 'SKU de ariat no debe resolverse en catálogo de stetson')
+    assert.equal(rows.length, 1, 'la línea se incluye (ya no se descarta)')
+    assert.equal(
+      rows[0]['Internal ID'], 'SIN_SKU',
+      'el SKU de ariat NO debe resolver a un Internal ID de stetson; cae al placeholder'
+    )
   })
 })

@@ -10,6 +10,7 @@
         "store_env_legacy": "SHOPIFY_STORE",
         "access_token_env_legacy": "SHOPIFY_ACCESS_TOKEN"
       },
+      "facturama_serie_env": "ARIAT_FACTURAMA_SERIE",
       "enabled": true
     },
     "stetson": {
@@ -20,6 +21,7 @@
         "client_id_env": "STETSON_SHOPIFY_CLIENT_ID",
         "client_secret_env": "STETSON_SHOPIFY_CLIENT_SECRET"
       },
+      "facturama_serie_env": "STETSON_FACTURAMA_SERIE",
       "enabled": true
     },
     "western brothers": {
@@ -30,6 +32,7 @@
         "client_id_env": "WB_SHOPIFY_CLIENT_ID",
         "client_secret_env": "WB_SHOPIFY_CLIENT_SECRET"
       },
+      "facturama_serie_env": "WB_FACTURAMA_SERIE",
       "enabled": true
     }
   }

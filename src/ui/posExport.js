@@ -429,7 +429,8 @@ function consultar() {
   }).then(r => r.json())
 
   const uuidsPromise = fetch(
-    `/pos-export/uuids?dateFrom=${dateFrom}&dateTo=${dateTo}`
+    `/pos-export/uuids?dateFrom=${dateFrom}&dateTo=${dateTo}` +
+    (brand ? `&brand=${encodeURIComponent(brand)}` : '')
   ).then(r => r.json()).catch(() => ({ ok: true, uuids: {} }))
 
   Promise.all([previewPromise, uuidsPromise])

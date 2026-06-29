@@ -109,7 +109,7 @@ async function getShopifyToken(brandConfig) {
     expiresAt:   Date.now() + expiresIn * 1000,
   })
 
-  console.log(`[shopify] Token OAuth renovado para '${key}', expira en ${expiresIn}s`)
+  console.log(`[shopify] Token OAuth renovado para '${key}', expira en ${expiresIn}s — scopes: ${data.scope ?? '(no informado)'}`)
   return data.access_token
 }
 
@@ -217,7 +217,11 @@ export function createShopifyClient(brandConfig) {
   }
 
   async function fetchOrders(dateFrom, dateTo) {
-    const dateRangeQuery = `created_at:>='${dateFrom}T00:00:00-06:00' created_at:<='${dateTo}T23:59:59-06:00' (financial_status:paid OR financial_status:partially_refunded OR financial_status:partially_paid)`
+    // El filtro por estado de pago se aplica en transformOrders (VALID_STATUSES),
+    // NO aquí, para tener una sola fuente de verdad y que los pedidos excluidos por
+    // estado queden VISIBLES en el diagnóstico (antes se filtraban aquí y
+    // desaparecían sin rastro, escondiendo por qué "faltaba" un pedido).
+    const dateRangeQuery = `created_at:>='${dateFrom}T00:00:00-06:00' created_at:<='${dateTo}T23:59:59-06:00'`
 
     const allOrders = await fetchAllOrders(dateRangeQuery)
     const returnedOrders = await fetchAllOrders(dateRangeQuery + ' return_status:returned')

@@ -99,6 +99,23 @@ export function listEnabledBrands() {
 }
 
 /**
+ * Resuelve la Serie de Facturama de una marca (para filtrar las facturas GLOBALES
+ * por marca, ya que todas comparten el RFC receptor "público en general").
+ * Independiente de las credenciales de Shopify: NO requiere las env vars de Shopify,
+ * por lo que el endpoint de UUIDs puede usarlo sin tenerlas configuradas.
+ * @param {string|null|undefined} brandKey
+ * @returns {string|undefined} la Serie, o undefined si la marca no define
+ *   facturama_serie_env o la env var no está seteada (→ sin filtro por serie).
+ */
+export function getFacturamaSerie(brandKey) {
+  const key = brandKey ?? _raw.default
+  const brand = _raw.brands[key]
+  if (!brand?.facturama_serie_env) return undefined
+  const val = process.env[brand.facturama_serie_env]
+  return val ? String(val).trim() : undefined
+}
+
+/**
  * Resuelve la configuración operativa de una marca, incluyendo los valores
  * reales de las env vars de Shopify.
  *

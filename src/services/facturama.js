@@ -135,7 +135,7 @@ const DETAIL_BATCH_SIZE = 5
 //  - Solo cuentan las globales (Rfc == XAXX010101000); las facturas de clientes se descartan.
 //  - Si un detalle falla (rejected), se omite esa global sin bloquear las demás.
 //  - Primera global que mapea a una fecha gana si hay duplicados.
-export async function getUUIDsForRange(dateFrom, dateTo) {
+export async function getUUIDsForRange(dateFrom, dateTo, serie) {
   const cfg = getConfig()
   if (!cfg) return {}  // Facturama no configurado — el caller recibe mapa vacío
 
@@ -145,7 +145,15 @@ export async function getUUIDsForRange(dateFrom, dateTo) {
   const cfdis = await listarCFDIs({ fechaInicio: dateFrom, fechaFin: emisHasta, status: 'active' })
 
   // Filtrar a globales ANTES de pedir detalle (minimiza llamadas a la API).
-  const globales = cfdis.filter(c => (c.Rfc ?? c.Receiver?.Rfc) === GLOBAL_RFC)
+  // Si se pasa `serie`, además se filtra por la Serie de la marca: la cuenta
+  // Facturama es compartida y todas las globales usan el mismo RFC receptor
+  // "público en general", así que la Serie es lo que distingue la marca.
+  const serieFiltro = serie ? String(serie).trim() : null
+  const globales = cfdis.filter(c => {
+    if ((c.Rfc ?? c.Receiver?.Rfc) !== GLOBAL_RFC) return false
+    if (serieFiltro && String(c.Serie ?? '').trim() !== serieFiltro) return false
+    return true
+  })
 
   // Extraer UUIDs válidos de las globales
   const uuidEntries = globales
