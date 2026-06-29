@@ -2,4 +2,9 @@ node_modules/
 .env
 data/
 
+# Helper de diagnóstico local (no se versiona)
+scripts/test-brand-shopify.js
+
 docs/
+
+.claude/

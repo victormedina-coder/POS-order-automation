@@ -1,0 +1,39 @@
+{
+  "default": "ariat",
+  "brands": {
+    "ariat": {
+      "label": "Ariat",
+      "shopify": {
+        "auth": "static",
+        "store_env": "ARIAT_SHOPIFY_STORE",
+        "access_token_env": "ARIAT_SHOPIFY_ACCESS_TOKEN",
+        "store_env_legacy": "SHOPIFY_STORE",
+        "access_token_env_legacy": "SHOPIFY_ACCESS_TOKEN"
+      },
+      "facturama_serie_env": "ARIAT_FACTURAMA_SERIE",
+      "enabled": true
+    },
+    "stetson": {
+      "label": "Stetson",
+      "shopify": {
+        "auth": "oauth",
+        "store_env": "STETSON_SHOPIFY_STORE",
+        "client_id_env": "STETSON_SHOPIFY_CLIENT_ID",
+        "client_secret_env": "STETSON_SHOPIFY_CLIENT_SECRET"
+      },
+      "facturama_serie_env": "STETSON_FACTURAMA_SERIE",
+      "enabled": true
+    },
+    "western brothers": {
+      "label": "Western Brothers",
+      "shopify": {
+        "auth": "oauth",
+        "store_env": "WB_SHOPIFY_STORE",
+        "client_id_env": "WB_SHOPIFY_CLIENT_ID",
+        "client_secret_env": "WB_SHOPIFY_CLIENT_SECRET"
+      },
+      "facturama_serie_env": "WB_FACTURAMA_SERIE",
+      "enabled": true
+    }
+  }
+}

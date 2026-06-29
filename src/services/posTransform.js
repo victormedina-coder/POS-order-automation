@@ -1,4 +1,5 @@
 import { getInternalId, getLocationConfig, getPaymentMethods } from './catalog.js'
+import { getDefaultBrand } from '../config/brands.js'
 
 const VALID_STATUSES = new Set(['PAID', 'PARTIALLY_REFUNDED', 'PARTIALLY_PAID'])
 
@@ -36,6 +37,12 @@ function formatDateCST(isoString) {
 // Factor de IVA México (16 %)
 const IVA_FACTOR = 1.16
 
+// Placeholder del Internal ID para líneas SIN match en el catálogo (SKU vacío o no
+// cargado). La línea NO se descarta: el CSV se genera con este marcador y luego se
+// reemplaza MANUALMENTE (Buscar y reemplazar) por el Internal ID del item NO
+// INVENTARIABLE de NetSuite. Cambiar el texto aquí si se prefiere otro marcador.
+const FALLBACK_INTERNAL_ID = 'SIN_SKU'
+
 /**
  * Transforma los pedidos Shopify en filas CSV para NetSuite.
  *
@@ -46,23 +53,45 @@ const IVA_FACTOR = 1.16
  *
  * Lanza si la tienda no existe en catalog_locations.
  */
-export function transformOrders(orders, storeName) {
-  const store = getLocationConfig(storeName)
+export function transformOrders(orders, storeName, brand) {
+  const b = brand ?? getDefaultBrand()
+  const store = getLocationConfig(storeName, b)
   if (!store) throw new Error(`Tienda '${storeName}' no encontrada en catalog_locations`)
 
-  const paymentMethods = getPaymentMethods()
+  const paymentMethods = getPaymentMethods(b)
   const rows = []
   const errors = []
 
+  // Diagnóstico del embudo de filtrado: por qué se descartan pedidos/líneas.
+  // (El descarte de línea por SKU ausente en el catálogo era SILENCIOSO — esto lo expone.)
+  const diag = {
+    fetched: orders.length,
+    notPos: 0,
+    wrongLocation: 0,
+    badStatus: 0,
+    cancelled: 0,
+    linesFallback: 0,
+    missingSkus: new Set(),
+    locationsSeen: new Set(),
+    excludedByStatus: [],
+  }
+
   for (const order of orders) {
     try {
-      if (order.sourceName !== 'pos') continue
+      if (order.sourceName !== 'pos') { diag.notPos++; continue }
 
       const orderLocation = (order.physicalLocation?.name ?? '').toLowerCase().trim()
-      if (orderLocation !== String(store.shopify_location).toLowerCase().trim()) continue
+      diag.locationsSeen.add(order.physicalLocation?.name ?? '(sin ubicación)')
+      if (orderLocation !== String(store.shopify_location).toLowerCase().trim()) { diag.wrongLocation++; continue }
 
-      if (!VALID_STATUSES.has(order.displayFinancialStatus)) continue
-      if (order.cancelledAt) continue
+      if (!VALID_STATUSES.has(order.displayFinancialStatus)) {
+        diag.badStatus++
+        if (diag.excludedByStatus.length < 25) {
+          diag.excludedByStatus.push({ name: order.name, status: order.displayFinancialStatus })
+        }
+        continue
+      }
+      if (order.cancelledAt) { diag.cancelled++; continue }
 
       const returnedQtys = order.returnedLineItemIds ?? {}
       const gateway = getSuccessfulGateway(order.transactions)
@@ -75,8 +104,14 @@ export function transformOrders(orders, storeName) {
         if (effectiveQty <= 0) continue
 
         const sku = (li.sku ?? '').trim()
-        const internalId = getInternalId(sku)
-        if (!internalId) continue
+        // Match exacto contra el catálogo. Si NO hay match, la línea se INCLUYE con
+        // el placeholder (para llenar a mano el item no inventariable después).
+        const matchedInternalId = getInternalId(sku, b)
+        const internalId = matchedInternalId ?? FALLBACK_INTERNAL_ID
+        if (!matchedInternalId) {
+          diag.linesFallback++
+          if (diag.missingSkus.size < 25) diag.missingSkus.add(sku || '(SKU vacío)')
+        }
 
         const unitPrice      = parseFloat(li.originalUnitPriceSet.shopMoney.amount)
         const totalDiscount  = li.discountAllocations.reduce(
@@ -109,5 +144,18 @@ export function transformOrders(orders, storeName) {
     totalLines: rows.length,
   }
 
-  return { rows, stats, errors }
+  const diagnostics = {
+    fetched: diag.fetched,
+    notPos: diag.notPos,
+    wrongLocation: diag.wrongLocation,
+    badStatus: diag.badStatus,
+    cancelled: diag.cancelled,
+    linesFallback: diag.linesFallback,
+    missingSkus: [...diag.missingSkus],
+    locationsSeen: [...diag.locationsSeen],
+    excludedByStatus: diag.excludedByStatus,
+    matchedOrders: stats.totalOrders,
+  }
+
+  return { rows, stats, errors, diagnostics }
 }

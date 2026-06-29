@@ -9,24 +9,28 @@ import {
 } from '../services/catalogNormalize.js'
 
 export default async function catalogImportRoutes(fastify) {
-  fastify.get('/catalog/items', { preHandler: requireAuth }, async (_req, reply) => {
-    return { items: listAllItems() }
+  fastify.get('/catalog/items', { preHandler: requireAuth }, async (request, reply) => {
+    const brand = request.query.brand ?? undefined
+    return { items: listAllItems(brand) }
   })
 
-  fastify.get('/catalog/locations', { preHandler: requireAuth }, async (_req, reply) => {
-    return { locations: listAllLocations() }
+  fastify.get('/catalog/locations', { preHandler: requireAuth }, async (request, reply) => {
+    const brand = request.query.brand ?? undefined
+    return { locations: listAllLocations(brand) }
   })
 
-  fastify.get('/catalog/payment-methods', { preHandler: requireAuth }, async (_req, reply) => {
-    return { paymentMethods: listAllPaymentMethods() }
+  fastify.get('/catalog/payment-methods', { preHandler: requireAuth }, async (request, reply) => {
+    const brand = request.query.brand ?? undefined
+    return { paymentMethods: listAllPaymentMethods(brand) }
   })
 
   fastify.delete('/catalog/clear', { preHandler: [requireAuth, requireXhr] }, async (request, reply) => {  // H-6: CSRF defense
     const table = request.query.table
+    const brand = request.query.brand ?? undefined
     if (!EXPECTED_COLUMNS[table]) {
       return reply.status(400).send({ error: 'Parámetro table debe ser "items", "locations" o "payment_methods"' })
     }
-    clearTable(table)
+    clearTable(table, brand)
     return { ok: true, table }
   })
 
@@ -92,8 +96,9 @@ export default async function catalogImportRoutes(fastify) {
       })
     }
 
+    const brand = request.query.brand ?? undefined
     const records = normalizeRecords(raw, table)
-    bulkUpsert(table, records)
+    bulkUpsert(table, records, brand)
     return { ok: true, imported: records.length, table }
   })
 }

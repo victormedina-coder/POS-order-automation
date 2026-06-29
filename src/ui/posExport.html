@@ -330,6 +330,22 @@
     <!-- Filter card with custom components -->
     <div class="filter-card">
       <div class="field">
+        <label class="label">Marca</label>
+        <div class="custom-select" id="cs-brand">
+          <button class="cs-trigger" type="button">
+            <span class="cs-value">Cargando...</span>
+            <svg class="cs-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <div class="cs-dropdown">
+            <div class="cs-list" id="cs-brand-list"></div>
+          </div>
+        </div>
+        <input type="hidden" id="brand" />
+      </div>
+
+      <div class="field">
         <label class="label">Sucursal</label>
         <div class="custom-select" id="cs-store">
           <button class="cs-trigger" type="button">
@@ -437,6 +453,21 @@
 <div id="view-catalog" class="view hidden">
   <div class="catalog-content">
     <div class="import-card">
+      <div class="field">
+        <label class="label">Marca</label>
+        <div class="custom-select" id="cs-catalog-brand">
+          <button class="cs-trigger" type="button">
+            <span class="cs-value">Cargando...</span>
+            <svg class="cs-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <div class="cs-dropdown">
+            <div class="cs-list" id="cs-catalog-brand-list"></div>
+          </div>
+        </div>
+        <input type="hidden" id="catalog-brand" />
+      </div>
       <div class="field">
         <label class="label">Tabla</label>
         <select id="import-table">

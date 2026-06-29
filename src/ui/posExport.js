@@ -50,24 +50,39 @@ function csInit(id) {
   })
 }
 
+/**
+ * Popula un custom-select con opciones.
+ * Retrocompatible: acepta string[] (cs-store) o {value,label}[] (cs-brand).
+ * Si se pasa un string, value y label son el mismo string.
+ */
 function csSetOptions(id, options) {
   const list = document.querySelector(`#${id} .cs-list`)
-  // opciones del servidor (nombres de sucursal) escapadas en atributo y texto.
-  list.innerHTML = options.map(opt => `
-    <div class="cs-option" data-val="${escapeHtml(opt)}">
+  const normalized = options.map(opt =>
+    typeof opt === 'string' ? { value: opt, label: opt } : opt
+  )
+  list.innerHTML = normalized.map(({ value, label }) => `
+    <div class="cs-option" data-val="${escapeHtml(value)}" data-label="${escapeHtml(label)}">
       <span class="cs-check">✓</span>
-      <span>${escapeHtml(opt)}</span>
+      <span>${escapeHtml(label)}</span>
     </div>
   `).join('')
-  if (options.length) csSelect(id, options[0], false)
+  if (normalized.length) csSelect(id, normalized[0].value, false)
 }
 
+/**
+ * Selecciona una opción en el custom-select por su value.
+ * El texto visible del trigger se toma del data-label del option (si existe),
+ * así "Ariat" aparece en el trigger aunque el hidden input guarde "ariat".
+ */
 function csSelect(id, value, close = true) {
-  document.querySelector(`#${id} .cs-value`).textContent = value
-  document.querySelectorAll(`#${id} .cs-option`).forEach(opt =>
-    opt.classList.toggle('selected', opt.dataset.val === value)
-  )
-  // sync hidden input (cs-store → store)
+  let displayLabel = value
+  document.querySelectorAll(`#${id} .cs-option`).forEach(opt => {
+    const isSelected = opt.dataset.val === value
+    opt.classList.toggle('selected', isSelected)
+    if (isSelected && opt.dataset.label) displayLabel = opt.dataset.label
+  })
+  document.querySelector(`#${id} .cs-value`).textContent = displayLabel
+  // sync hidden input (cs-store → store, cs-brand → brand)
   const hiddenId = id.replace('cs-', '')
   const hidden = document.getElementById(hiddenId)
   if (hidden) hidden.value = value
@@ -165,6 +180,8 @@ const FIRST_OF_MONTH = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`
 dpInit('dp-from', FIRST_OF_MONTH)
 dpInit('dp-to',   TODAY_STR)
 csInit('cs-store')
+csInit('cs-brand')
+csInit('cs-catalog-brand')
 
 // ── User indicator ──
 fetch('/auth/me')
@@ -188,16 +205,102 @@ fetch('/auth/me')
   })
   .catch(() => {})
 
-// ── Locations → populate custom select ──
-fetch('/pos-export/locations')
+// ── Carga de sucursales para la marca activa ──
+function loadLocations(brandKey) {
+  const url = '/pos-export/locations' + (brandKey ? '?brand=' + encodeURIComponent(brandKey) : '')
+  fetch(url)
+    .then(r => r.json())
+    .then(({ locations }) => {
+      if (locations.length) {
+        csSetOptions('cs-store', locations)
+      } else {
+        document.querySelector('#cs-store .cs-value').textContent = 'Sin sucursales'
+        document.querySelector('#cs-store .cs-list').innerHTML = ''
+        document.getElementById('store').value = ''
+      }
+    })
+}
+
+// ── Brands → populate cs-brand y cs-catalog-brand, luego cargar sucursales ──
+fetch('/pos-export/brands')
   .then(r => r.json())
-  .then(({ locations }) => {
-    if (locations.length) {
-      csSetOptions('cs-store', locations)
-    } else {
-      document.querySelector('#cs-store .cs-value').textContent = 'Sin sucursales'
+  .then(({ brands }) => {
+    if (!brands.length) {
+      document.querySelector('#cs-brand .cs-value').textContent = 'Sin marcas'
+      document.querySelector('#cs-catalog-brand .cs-value').textContent = 'Sin marcas'
+      return
+    }
+
+    const enabledKeys  = brands.map(b => b.key)
+    const brandOptions = brands.map(b => ({ value: b.key, label: b.label }))
+
+    // ── Selector de Exportar POS ──
+    const savedKey   = localStorage.getItem('pos-brand')
+    const initialKey = enabledKeys.includes(savedKey) ? savedKey : brands[0].key
+    csSetOptions('cs-brand', brandOptions)
+    csSelect('cs-brand', initialKey, false)
+    localStorage.setItem('pos-brand', initialKey)
+    loadLocations(initialKey)
+
+    // ── Selector independiente del Catálogo ──
+    const savedCatalogKey   = localStorage.getItem('pos-catalog-brand')
+    const initialCatalogKey = enabledKeys.includes(savedCatalogKey) ? savedCatalogKey : brands[0].key
+    csSetOptions('cs-catalog-brand', brandOptions)
+    csSelect('cs-catalog-brand', initialCatalogKey, false)
+    localStorage.setItem('pos-catalog-brand', initialCatalogKey)
+  })
+
+// ════════════════════════════════════════════════════════
+// BRAND CHANGE — recarga sucursales y limpia resultados previos
+// ════════════════════════════════════════════════════════
+function onBrandChange(newBrandKey) {
+  localStorage.setItem('pos-brand', newBrandKey)
+  // Limpia resultados previos (igual que al inicio de consultar())
+  lastRows = null
+  hideError()
+  document.getElementById('btn-export').classList.add('hidden')
+  document.getElementById('stats-row').classList.add('hidden')
+  document.getElementById('results-section').classList.add('hidden')
+  document.getElementById('empty-state').classList.remove('hidden')
+  // Recarga sucursales con la nueva marca
+  loadLocations(newBrandKey)
+  // Si el catálogo ya estaba cargado, forzar recarga con la nueva marca
+  catalogLoaded = false
+}
+
+// Detecta cambios de marca leyendo el data-val de la opción clickeada.
+// (Se registra un segundo listener sobre .cs-list, además del de csInit que
+// actualiza el hidden #brand; aquí solo reaccionamos al cambio.)
+;(function watchBrandChange() {
+  let prevBrandVal = document.getElementById('brand').value
+  document.querySelector('#cs-brand .cs-list').addEventListener('click', e => {
+    const opt = e.target.closest('.cs-option')
+    if (!opt) return
+    const newVal = opt.dataset.val
+    if (newVal && newVal !== prevBrandVal) {
+      prevBrandVal = newVal
+      onBrandChange(newVal)
     }
   })
+})()
+
+// ════════════════════════════════════════════════════════
+// CATALOG BRAND CHANGE — independiente del selector de Exportar POS
+// ════════════════════════════════════════════════════════
+;(function watchCatalogBrandChange() {
+  let prevVal = document.getElementById('catalog-brand').value
+  document.querySelector('#cs-catalog-brand .cs-list').addEventListener('click', e => {
+    const opt = e.target.closest('.cs-option')
+    if (!opt) return
+    const newVal = opt.dataset.val
+    if (newVal && newVal !== prevVal) {
+      prevVal = newVal
+      localStorage.setItem('pos-catalog-brand', newVal)
+      catalogLoaded = false
+      loadCatalog()
+    }
+  })
+})()
 
 // ════════════════════════════════════════════════════════
 // APP TAB NAVIGATION
@@ -229,14 +332,16 @@ function switchResults(panel) {
 // ════════════════════════════════════════════════════════
 function loadCatalog() {
   catalogLoaded = true
+  const brandKey = document.getElementById('catalog-brand').value
+  const bq = brandKey ? '?brand=' + encodeURIComponent(brandKey) : ''
   Promise.all([
-    fetch('/catalog/items').then(r => r.json()),
-    fetch('/catalog/locations').then(r => r.json()),
-    fetch('/catalog/payment-methods').then(r => r.json()),
+    fetch('/catalog/items'          + bq).then(r => r.json()),
+    fetch('/catalog/locations'      + bq).then(r => r.json()),
+    fetch('/catalog/payment-methods'+ bq).then(r => r.json()),
   ]).then(([itemsData, locData, pmData]) => {
-    renderCatalogTable('items',           itemsData.items,       ['sku', 'internal_id'])
-    renderCatalogTable('locations',       locData.locations,     ['store_name', 'oracle_location', 'rep_id', 'shopify_location'])
-    renderCatalogTable('payment-methods', pmData.paymentMethods, ['clave', 'payment_type'])
+    renderCatalogTable('items',           itemsData.items,       ['brand', 'sku', 'internal_id'])
+    renderCatalogTable('locations',       locData.locations,     ['brand', 'store_name', 'oracle_location', 'rep_id', 'shopify_location'])
+    renderCatalogTable('payment-methods', pmData.paymentMethods, ['brand', 'clave', 'payment_type'])
   }).catch(err => console.error('Error cargando catálogo:', err))
 }
 
@@ -255,8 +360,10 @@ async function clearCatalog(table) {
   const labels = { items: 'Items', locations: 'Sucursales', payment_methods: 'Métodos de pago' }
   if (!confirm(`¿Eliminar todos los registros de "${labels[table]}"?`)) return
 
+  const brandKey = document.getElementById('catalog-brand').value
+  const bq = brandKey ? `&brand=${encodeURIComponent(brandKey)}` : ''
   try {
-    const res = await fetch(`/catalog/clear?table=${table}`, { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } })  // H-6
+    const res = await fetch(`/catalog/clear?table=${table}${bq}`, { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     const data = await res.json()
     if (data.ok) { catalogLoaded = false; loadCatalog() }
   } catch (e) {
@@ -275,10 +382,12 @@ async function importCatalog() {
   statusEl.textContent = ''; statusEl.className = 'import-status'
   const formData = new FormData(); formData.append('file', fileInput.files[0])
 
+  const brandKey = document.getElementById('catalog-brand').value
+  const bq = brandKey ? `&brand=${encodeURIComponent(brandKey)}` : ''
   try {
     // X-Requested-With se incluye sin Content-Type para que el navegador
     // establezca automáticamente el boundary correcto de multipart/form-data.
-    const res = await fetch(`/catalog/import?table=${table}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: formData })
+    const res = await fetch(`/catalog/import?table=${table}${bq}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: formData })
     const data = await res.json()
     if (data.ok) {
       statusEl.textContent = `✓ ${data.imported} registros importados`
@@ -305,6 +414,7 @@ function consultar() {
   const dateFrom  = document.getElementById('date-from').value
   const dateTo    = document.getElementById('date-to').value
   const storeName = document.getElementById('store').value
+  const brand     = document.getElementById('brand').value || undefined
   if (!dateFrom || !dateTo || !storeName) return
 
   setLoading(true); hideError(); lastRows = null
@@ -315,11 +425,12 @@ function consultar() {
   const previewPromise = fetch('/pos-export/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ dateFrom, dateTo, storeName }),
+    body: JSON.stringify({ dateFrom, dateTo, storeName, brand }),
   }).then(r => r.json())
 
   const uuidsPromise = fetch(
-    `/pos-export/uuids?dateFrom=${dateFrom}&dateTo=${dateTo}`
+    `/pos-export/uuids?dateFrom=${dateFrom}&dateTo=${dateTo}` +
+    (brand ? `&brand=${encodeURIComponent(brand)}` : '')
   ).then(r => r.json()).catch(() => ({ ok: true, uuids: {} }))
 
   Promise.all([previewPromise, uuidsPromise])
@@ -350,13 +461,14 @@ function descargar() {
   const dateFrom  = document.getElementById('date-from').value
   const dateTo    = document.getElementById('date-to').value
   const storeName = document.getElementById('store').value
+  const brand     = document.getElementById('brand').value || undefined
   const uuids     = collectUUIDs()
   setDownloading(true)
 
   fetch('/pos-export/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ dateFrom, dateTo, storeName, uuids }),
+    body: JSON.stringify({ dateFrom, dateTo, storeName, brand, uuids }),
   })
     .then(async res => {
       setDownloading(false)
