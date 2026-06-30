@@ -242,6 +242,80 @@ describe('posTransform — transformación correcta de pedidos', () => {
     assert.equal(fallback['Net Price'], (100 / 1.16).toFixed(6))
     assert.equal(diagnostics.linesFallback, 1, 'el embudo registra la línea de fallback')
   })
+
+  test('línea sin SKU y precio 0 (bolsa de sucursal) se ignora', () => {
+    const orders = [
+      makeOrder({
+        name: '#2004',
+        lineItems: [
+          makeLineItem('li_bag',  '',              1, '0'),
+          makeLineItem('li_real', 'ARIAT_SKU_001', 1, '116.00'),
+        ],
+        physicalLocationName: 'ariat_gdl',
+      }),
+    ]
+    const { rows, diagnostics } = transformOrders(orders, 'ariat_gdl', 'ariat')
+
+    assert.equal(rows.length, 1, 'solo la línea real debe aparecer; la bolsa se descarta')
+    assert.equal(rows[0]['Internal ID'], 'NS_A001')
+    assert.equal(diagnostics.skippedNoSkuZeroPrice, 1)
+    assert.equal(diagnostics.linesFallback, 0, 'la bolsa no debe contar como fallback')
+  })
+
+  test('línea sin SKU pero con precio > 0 sigue cayendo a SIN_SKU (control)', () => {
+    const orders = [
+      makeOrder({
+        name: '#2005',
+        lineItems: [
+          makeLineItem('li_nosku_priced', '', 1, '100.00'),
+        ],
+        physicalLocationName: 'ariat_gdl',
+      }),
+    ]
+    const { rows, diagnostics } = transformOrders(orders, 'ariat_gdl', 'ariat')
+
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]['Internal ID'], 'SIN_SKU')
+    assert.equal(diagnostics.skippedNoSkuZeroPrice, 0)
+    assert.equal(diagnostics.linesFallback, 1)
+  })
+
+  test('línea con SKU no vacío pero NO cargado en catálogo y precio 0 (bolsa con SKU) se ignora', () => {
+    const orders = [
+      makeOrder({
+        name: '#2006',
+        lineItems: [
+          makeLineItem('li_bag_sku', 'BOLSA',         1, '0'),
+          makeLineItem('li_real',    'ARIAT_SKU_001', 1, '116.00'),
+        ],
+        physicalLocationName: 'ariat_gdl',
+      }),
+    ]
+    const { rows, diagnostics } = transformOrders(orders, 'ariat_gdl', 'ariat')
+
+    assert.equal(rows.length, 1, 'solo la línea real debe aparecer; la bolsa con SKU se descarta')
+    assert.equal(rows[0]['Internal ID'], 'NS_A001')
+    assert.equal(diagnostics.skippedNoSkuZeroPrice, 1)
+    assert.equal(diagnostics.linesFallback, 0, 'la bolsa no debe contar como fallback')
+  })
+
+  test('línea con SKU no cargado y precio > 0 sigue cayendo a SIN_SKU (control)', () => {
+    const orders = [
+      makeOrder({
+        name: '#2007',
+        lineItems: [
+          makeLineItem('li_sku_priced', 'BOLSA', 1, '50.00'),
+        ],
+        physicalLocationName: 'ariat_gdl',
+      }),
+    ]
+    const { rows, diagnostics } = transformOrders(orders, 'ariat_gdl', 'ariat')
+
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]['Internal ID'], 'SIN_SKU')
+    assert.equal(diagnostics.linesFallback, 1)
+    assert.equal(diagnostics.skippedNoSkuZeroPrice, 0)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

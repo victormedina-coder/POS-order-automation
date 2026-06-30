@@ -71,6 +71,7 @@ export function transformOrders(orders, storeName, brand) {
     badStatus: 0,
     cancelled: 0,
     linesFallback: 0,
+    skippedNoSkuZeroPrice: 0,
     missingSkus: new Set(),
     locationsSeen: new Set(),
     excludedByStatus: [],
@@ -104,22 +105,34 @@ export function transformOrders(orders, storeName, brand) {
         if (effectiveQty <= 0) continue
 
         const sku = (li.sku ?? '').trim()
-        // Match exacto contra el catálogo. Si NO hay match, la línea se INCLUYE con
-        // el placeholder (para llenar a mano el item no inventariable después).
-        const matchedInternalId = getInternalId(sku, b)
-        const internalId = matchedInternalId ?? FALLBACK_INTERNAL_ID
-        if (!matchedInternalId) {
-          diag.linesFallback++
-          if (diag.missingSkus.size < 25) diag.missingSkus.add(sku || '(SKU vacío)')
-        }
+        const unitPrice = parseFloat(li.originalUnitPriceSet.shopMoney.amount)
 
-        const unitPrice      = parseFloat(li.originalUnitPriceSet.shopMoney.amount)
+        // Match exacto contra el catálogo (se resuelve antes del descarte para poder
+        // evaluar la condición "sin match Y precio facturable $0" más abajo).
+        const matchedInternalId = getInternalId(sku, b)
+
         const totalDiscount  = li.discountAllocations.reduce(
           (sum, d) => sum + parseFloat(d.allocatedAmountSet.shopMoney.amount), 0
         )
         const discountPerUnit    = totalDiscount / li.quantity
         const priceAfterDiscount = unitPrice - discountPerUnit
         const netPrice           = (priceAfterDiscount / IVA_FACTOR).toFixed(6)
+
+        // Bolsas / artículos de sucursal: líneas SIN match en el catálogo (caerían a
+        // SIN_SKU) y con importe facturable $0 no son productos vendibles → se ignoran.
+        // (El fallback SIN_SKU del 2026-06-25 las hizo visibles por error.)
+        if (!matchedInternalId && parseFloat(netPrice) === 0) {
+          diag.skippedNoSkuZeroPrice++
+          continue
+        }
+
+        // Si NO hay match, la línea se INCLUYE con el placeholder (para llenar a mano
+        // el item no inventariable después).
+        const internalId = matchedInternalId ?? FALLBACK_INTERNAL_ID
+        if (!matchedInternalId) {
+          diag.linesFallback++
+          if (diag.missingSkus.size < 25) diag.missingSkus.add(sku || '(SKU vacío)')
+        }
 
         rows.push({
           'Order Date': orderDate,
@@ -151,6 +164,7 @@ export function transformOrders(orders, storeName, brand) {
     badStatus: diag.badStatus,
     cancelled: diag.cancelled,
     linesFallback: diag.linesFallback,
+    skippedNoSkuZeroPrice: diag.skippedNoSkuZeroPrice,
     missingSkus: [...diag.missingSkus],
     locationsSeen: [...diag.locationsSeen],
     excludedByStatus: diag.excludedByStatus,
