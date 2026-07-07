@@ -60,9 +60,10 @@ export default async function catalogImportRoutes(fastify) {
       data = await request.file()
     } catch (err) {
       // @fastify/multipart lanza un error con código FST_REQ_FILE_TOO_LARGE cuando
-      // se supera el límite configurado en app.js.
+      // se supera el límite configurado en app.js (CATALOG_MAX_UPLOAD_MB).
       if (err?.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.status(413).send({ error: 'El archivo supera el tamaño máximo permitido (5 MB)' })
+        request.log.error({ table, reason: 'file_too_large' }, 'catalog import: archivo excede el límite')
+        return reply.status(413).send({ error: 'El archivo supera el tamaño máximo permitido' })
       }
       return reply.status(400).send({ error: 'Error procesando el archivo' })
     }
@@ -74,10 +75,42 @@ export default async function catalogImportRoutes(fastify) {
       return reply.status(400).send({ error: 'Tipo de archivo no permitido. Se esperaba un archivo .csv' })
     }
 
-    const buffer = await data.toBuffer()
+    const brand = request.query.brand ?? undefined
+    const startedAt = Date.now()
+
+    let buffer
+    try {
+      buffer = await data.toBuffer()
+    } catch (err) {
+      // @fastify/multipart también puede lanzar FST_REQ_FILE_TOO_LARGE aquí si el
+      // límite se excede mientras se drena el stream hacia el buffer.
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        request.log.error({ table, brand, reason: 'file_too_large' }, 'catalog import: archivo excede el límite')
+        return reply.status(413).send({ error: 'El archivo supera el tamaño máximo permitido' })
+      }
+      request.log.error({ table, brand, reason: 'buffer_read_failed', err: err?.message }, 'catalog import: fallo leyendo el archivo')
+      return reply.status(400).send({ error: 'Error procesando el archivo' })
+    }
+
+    // Guarda contra truncamiento silencioso: si @fastify/multipart cortó el stream
+    // porque se alcanzó el límite de tamaño, el archivo llega incompleto pero sin
+    // lanzar error. Sin esta verificación se importarían filas de un CSV truncado
+    // reportando éxito.
+    if (data.file?.truncated === true) {
+      request.log.error({ table, brand, reason: 'truncated' }, 'catalog import: archivo truncado por límite de tamaño')
+      return reply.status(413).send({ error: 'El archivo supera el tamaño máximo permitido y fue truncado' })
+    }
+
+    const fileBytes = buffer.length
     const content = buffer.toString('utf-8')
 
-    const raw = parse(content, { columns: true, skip_empty_lines: true, trim: true })
+    let raw
+    try {
+      raw = parse(content, { columns: true, skip_empty_lines: true, trim: true })
+    } catch (err) {
+      request.log.error({ table, brand, reason: 'csv_parse_failed', err: err?.message }, 'catalog import: fallo parseando CSV')
+      return reply.status(400).send({ error: 'Error al parsear el archivo CSV' })
+    }
 
     if (raw.length === 0) {
       return reply.status(400).send({ error: 'El archivo CSV no contiene filas de datos' })
@@ -96,9 +129,27 @@ export default async function catalogImportRoutes(fastify) {
       })
     }
 
-    const brand = request.query.brand ?? undefined
     const records = normalizeRecords(raw, table)
-    bulkUpsert(table, records, brand)
-    return { ok: true, imported: records.length, table }
+    const summary = bulkUpsert(table, records, brand)
+    const elapsedMs = Date.now() - startedAt
+
+    request.log.info(
+      { table, brand, fileBytes, ...summary, elapsedMs },
+      'catalog import complete'
+    )
+    if (summary.skippedEmptySku > 0 || summary.duplicatesCollapsed > 0) {
+      request.log.warn(
+        { table, brand, skippedEmptySku: summary.skippedEmptySku, duplicatesCollapsed: summary.duplicatesCollapsed },
+        'catalog import: rows dropped'
+      )
+    }
+    if (summary.suspiciousSku > 0) {
+      request.log.warn(
+        { table, brand, suspiciousSku: summary.suspiciousSku },
+        'catalog import: SKUs en notación científica (posible export corrupto)'
+      )
+    }
+
+    return { ok: true, table, ...summary, imported: summary.inserted }
   })
 }

@@ -1,3 +1,5 @@
+import logger from '../lib/logger.js'
+
 // Singleton lazy: evita recomputar el authHeader (Buffer+base64) en cada llamada.
 // Las env vars son inmutables en producción, por lo que este caché es seguro.
 let _config = undefined
@@ -108,6 +110,7 @@ export async function listarCFDIs(params = {}) {
     all.push(...batch)
     if (batch.length < PAGE_SIZE) break
   }
+  logger.info({ count: all.length }, 'facturama: CFDIs consultados')
   return all
 }
 

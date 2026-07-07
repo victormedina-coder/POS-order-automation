@@ -16,7 +16,7 @@ if (!sessionSecret || sessionSecret.length < 32) {
   throw new Error('SESSION_SECRET debe estar definido y tener al menos 32 caracteres')
 }
 
-const app = Fastify({ logger: true, trustProxy: true })
+const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, trustProxy: true })
 
 await app.register(cookie)
 await app.register(session, {
@@ -31,9 +31,11 @@ await app.register(session, {
   saveUninitialized: false,
 })
 
-// límite de 5 MB por archivo y máximo 1 archivo por request.
+// límite de archivo configurable vía CATALOG_MAX_UPLOAD_MB (default 50 MB para
+// soportar catálogos grandes, p.ej. ~50,000 filas). Máximo 1 archivo por request.
+const catalogMaxUploadMb = parseInt(process.env.CATALOG_MAX_UPLOAD_MB ?? '50', 10)
 await app.register(multipart, {
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: catalogMaxUploadMb * 1024 * 1024, files: 1 },
 })
 
 // Security headers con CSP.
@@ -75,6 +77,31 @@ await app.register(rateLimit, {
 await app.register(authRoutes)
 await app.register(posExportRoutes)
 await app.register(catalogImportRoutes)
+
+// Manejador global de errores: red de seguridad para excepciones NO capturadas
+// (throws que no pasaron por un try/catch con reply.status(...).send(...) explícito
+// en el handler). Los handlers que ya responden explícitamente nunca llegan aquí
+// porque no lanzan — este setErrorHandler solo intercepta errores propagados.
+// No interfiere con @fastify/rate-limit (su errorResponseBuilder corre en su propio
+// hook, antes de que la request llegue a un handler que pueda lanzar).
+app.setErrorHandler((err, request, reply) => {
+  request.log.error(
+    { err, url: request.url, method: request.method },
+    'unhandled error'
+  )
+
+  // Errores de validación de schema (Fastify/AJV) o errores operacionales con
+  // statusCode 4xx explícito (p.ej. errores HTTP reenviados desde servicios como
+  // Facturama) preservan su código y mensaje — son "culpa del cliente" y el
+  // mensaje ya es seguro de mostrar. Todo lo demás es un 500 genérico: no se
+  // filtran detalles internos (stack traces, mensajes de DB, etc.) al cliente.
+  const isClientError = err.validation || (err.statusCode >= 400 && err.statusCode < 500)
+  if (isClientError) {
+    return reply.status(err.statusCode ?? 400).send({ ok: false, error: err.message })
+  }
+
+  return reply.status(500).send({ ok: false, error: 'Error interno del servidor' })
+})
 
 app.get('/', async (_req, reply) => reply.redirect('/pos-export'))
 app.get('/health', async () => ({ ok: true }))

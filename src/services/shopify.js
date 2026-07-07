@@ -1,3 +1,5 @@
+import logger from '../lib/logger.js'
+
 // ─── Helpers de módulo (sin dependencia de credenciales) ─────────────────────
 
 const shopifyQuery = `
@@ -109,7 +111,10 @@ async function getShopifyToken(brandConfig) {
     expiresAt:   Date.now() + expiresIn * 1000,
   })
 
-  console.log(`[shopify] Token OAuth renovado para '${key}', expira en ${expiresIn}s — scopes: ${data.scope ?? '(no informado)'}`)
+  logger.info(
+    { brand: key, expiresInSeconds: expiresIn, scopes: data.scope ?? null },
+    'shopify: token OAuth renovado'
+  )
   return data.access_token
 }
 
@@ -237,6 +242,7 @@ export function createShopifyClient(brandConfig) {
       }
     }
 
+    logger.info({ brand: brandConfig.key, count: allOrders.length }, 'shopify: pedidos obtenidos')
     return allOrders
   }
 
