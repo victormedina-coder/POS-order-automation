@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
+import logger from '../lib/logger.js'
 
 // Resuelve la ruta de config/brands.json relativa a la raíz del proyecto,
 // sin depender del cwd desde donde se lanza el proceso.
@@ -62,7 +63,8 @@ const _legacyWarnEmitted = new Set()
 function warnLegacyOnce(legacyVar, primaryVar) {
   if (_legacyWarnEmitted.has(legacyVar)) return
   _legacyWarnEmitted.add(legacyVar)
-  console.warn(
+  logger.warn(
+    { legacyVar, primaryVar },
     `[brands] usando env var legacy ${legacyVar} — migrar a ${primaryVar} (se elimina en Etapa 7)`
   )
 }

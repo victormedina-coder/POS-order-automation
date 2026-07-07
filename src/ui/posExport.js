@@ -390,7 +390,21 @@ async function importCatalog() {
     const res = await fetch(`/catalog/import?table=${table}${bq}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: formData })
     const data = await res.json()
     if (data.ok) {
-      statusEl.textContent = `✓ ${data.imported} registros importados`
+      const fmt = (n) => Number(n ?? 0).toLocaleString('es-MX')
+      const parts = [`Recibidos: ${fmt(data.received)}`, `Insertados: ${fmt(data.inserted)}`]
+      if (data.duplicatesCollapsed)  parts.push(`Duplicados colapsados: ${fmt(data.duplicatesCollapsed)}`)
+      let message = `✓ ${parts.join(' · ')}`
+      // No hay clase CSS dedicada de "warning" para .import-status (solo ok/err) —
+      // se mantiene la clase "ok" (la importación en sí no falló) pero el texto
+      // ⚠️ resalta visualmente para no pasar desapercibido. Solo se listan los
+      // tipos de incidencia con conteo > 0.
+      const incidencias = []
+      if (data.skippedEmptySku)  incidencias.push(`${fmt(data.skippedEmptySku)} incidencias sin SKU`)
+      if (data.suspiciousSku)    incidencias.push(`${fmt(data.suspiciousSku)} incidencias en notación científica`)
+      if (incidencias.length > 0) {
+        message += `\n⚠️ ${incidencias.join(', ')}`
+      }
+      statusEl.textContent = message
       statusEl.className = 'import-status ok'
       fileInput.value = ''
       catalogLoaded = false; loadCatalog()

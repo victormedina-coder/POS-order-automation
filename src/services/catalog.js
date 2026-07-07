@@ -134,24 +134,60 @@ export function clearTable(table, brand) {
  * Importa filas al catálogo en batch usando INSERT OR REPLACE / INSERT.
  * SKUs normalizados al insertar en catalog_items.
  * Todas las filas se asocian a la marca `brand` (default Ariat si no se pasa).
+ *
+ * IMPORTANTE — conteo honesto: catalog_items y catalog_payment_methods tienen
+ * PRIMARY KEY compuesta (brand, sku) / (brand, clave). INSERT OR REPLACE colapsa
+ * filas con la misma clave normalizada en una sola fila (last-wins). Por eso esta
+ * función NO reporta rows.length como "importado": cuenta filas con clave vacía
+ * (se omiten, son inmapeables) y filas duplicadas que colapsan, y retorna el
+ * conteo REAL de filas distintas escritas en la tabla.
+ *
  * @param {'items'|'locations'|'payment_methods'} table
  * @param {object[]} rows
  * @param {string|null|undefined} brand
+ * @returns {{received: number, skippedEmptySku: number, duplicatesCollapsed: number, suspiciousSku: number, inserted: number}}
  */
+// Detecta SKUs corrompidos a notación científica pura por exportar la columna
+// como número en Excel/Sheets (p.ej. "7.5065E+12"). Al igual que un SKU vacío,
+// son inmapeables (se perdió la precisión original del número) → se OMITEN,
+// pero se cuentan aparte en suspiciousSku para que el usuario sepa que debe
+// corregir el export (columna SKU como TEXTO) en vez de asumir que son válidos.
+const SCI_NOTATION = /^\d+(\.\d+)?[eE]\+?\d+$/
+
 export function bulkUpsert(table, rows, brand) {
-  if (rows.length === 0) return
+  const received = rows.length
+  if (received === 0) {
+    return { received: 0, skippedEmptySku: 0, duplicatesCollapsed: 0, suspiciousSku: 0, inserted: 0 }
+  }
   const b = resolveBrand(brand)
 
   if (table === 'items') {
+    let skippedEmptySku = 0
+    let suspiciousSku = 0
+    const byKey = new Map() // normalizedSku -> item (last-wins)
+    for (const item of rows) {
+      const sku = normalizeSku(item.sku)
+      if (sku === '') {
+        skippedEmptySku++
+        continue
+      }
+      if (SCI_NOTATION.test(sku)) {
+        suspiciousSku++
+        continue
+      }
+      byKey.set(sku, item)
+    }
+    const duplicatesCollapsed = (received - skippedEmptySku - suspiciousSku) - byKey.size
+
     const insert = db.prepare(
       'INSERT OR REPLACE INTO catalog_items (brand, sku, internal_id) VALUES (?, ?, ?)'
     )
     withTransaction(() => {
-      for (const item of rows) {
-        insert.run(b, normalizeSku(item.sku), item.internal_id)
+      for (const [sku, item] of byKey) {
+        insert.run(b, sku, item.internal_id)
       }
     })
-    return
+    return { received, skippedEmptySku, duplicatesCollapsed, suspiciousSku, inserted: byKey.size }
   }
 
   if (table === 'locations') {
@@ -166,17 +202,30 @@ export function bulkUpsert(table, rows, brand) {
         insert.run(b, item.store_name, item.oracle_location, item.rep_id, item.shopify_location)
       }
     })
-    return
+    return { received, skippedEmptySku: 0, duplicatesCollapsed: 0, suspiciousSku: 0, inserted: rows.length }
   }
 
   if (table === 'payment_methods') {
+    let skippedEmptySku = 0
+    const byKey = new Map() // clave -> item (last-wins)
+    for (const item of rows) {
+      const clave = String(item.clave ?? '').trim()
+      if (clave === '') {
+        skippedEmptySku++
+        continue
+      }
+      byKey.set(clave, item)
+    }
+    const duplicatesCollapsed = (received - skippedEmptySku) - byKey.size
+
     const insert = db.prepare(
       'INSERT OR REPLACE INTO catalog_payment_methods (brand, clave, payment_type) VALUES (?, ?, ?)'
     )
     withTransaction(() => {
-      for (const item of rows) {
-        insert.run(b, String(item.clave), String(item.payment_type).trim())
+      for (const [clave, item] of byKey) {
+        insert.run(b, clave, String(item.payment_type).trim())
       }
     })
+    return { received, skippedEmptySku, duplicatesCollapsed, suspiciousSku: 0, inserted: byKey.size }
   }
 }
