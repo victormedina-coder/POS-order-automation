@@ -101,7 +101,7 @@ async function getShopifyToken(brandConfig) {
   })
 
   if (!res.ok) {
-    throw new Error(`Shopify token HTTP ${res.status} para '${key}': ${await res.text()}`)
+    throw new Error(`Shopify token HTTP ${res.status} para '${key}'`)
   }
 
   const data = await res.json()
@@ -121,49 +121,51 @@ async function getShopifyToken(brandConfig) {
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 /**
- * Crea un cliente Shopify para la marca indicada.
- * Soporta dos modos de autenticación según brandConfig.shopify.auth:
- *   - "static": usa el accessToken fijo resuelto en getBrandConfig().
- *   - "oauth":  obtiene y rota automáticamente el token via client_credentials.
+ * Crea un cliente Shopify con token OAuth client_credentials para la marca.
  *
- * @param {{ key: string, label: string, shopify: { store: string, auth: string, accessToken?: string, clientId?: string, clientSecret?: string } }} brandConfig
+ * @param {{ key: string, label: string, shopify: { store: string, auth: 'oauth', clientId: string, clientSecret: string } }} brandConfig
  *   Resultado de getBrandConfig() de src/config/brands.js.
  * @returns {{ fetchOrders: (dateFrom: string, dateTo: string) => Promise<object[]> }}
  */
 export function createShopifyClient(brandConfig) {
-  const { store, auth } = brandConfig.shopify
+  const { store } = brandConfig.shopify
   const GRAPHQL_URL = `https://${store}/admin/api/2025-07/graphql.json`
 
-  // Resuelve la función que provee el token según el modo de auth.
-  let getToken
-  if (auth === 'oauth') {
-    getToken = () => getShopifyToken(brandConfig)
-  } else {
-    // auth === 'static' (o ausente por compatibilidad)
-    const { accessToken } = brandConfig.shopify
-    getToken = async () => accessToken
-  }
+  const getToken = () => getShopifyToken(brandConfig)
 
   async function gqlRequest(query, variables = {}) {
     const token = await getToken()
-    const res = await fetch(GRAPHQL_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': token,
-      },
-      body: JSON.stringify({ query, variables }),
-    })
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await fetch(GRAPHQL_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': token,
+        },
+        body: JSON.stringify({ query, variables }),
+      })
 
-    if (!res.ok) {
-      throw new Error(`Shopify HTTP ${res.status}: ${await res.text()}`)
-    }
+      if (!res.ok) {
+        throw new Error(`Shopify HTTP ${res.status}: ${await res.text()}`)
+      }
 
-    const json = await res.json()
-    if (json.errors?.length) {
-      throw new Error(`Shopify GraphQL: ${JSON.stringify(json.errors)}`)
+      const json = await res.json()
+      if (json.errors?.length) {
+        if (attempt < 3 && json.errors.every(error => error.extensions?.code === 'THROTTLED')) {
+          const cost = json.extensions?.cost
+          const available = cost?.throttleStatus?.currentlyAvailable
+          const rate = cost?.throttleStatus?.restoreRate
+          const waitMs = Number.isFinite(cost?.requestedQueryCost) && Number.isFinite(available) && rate > 0
+            ? Math.max(1000, Math.ceil((cost.requestedQueryCost - available) / rate) * 1000)
+            : 1000
+          logger.warn({ brand: brandConfig.key, attempt, waitMs }, 'shopify: GraphQL throttled')
+          await new Promise(resolve => setTimeout(resolve, waitMs))
+          continue
+        }
+        throw new Error(`Shopify GraphQL: ${JSON.stringify(json.errors)}`)
+      }
+      return json.data
     }
-    return json.data
   }
 
   async function fetchAllOrders(queryStr) {
@@ -226,7 +228,7 @@ export function createShopifyClient(brandConfig) {
     // NO aquí, para tener una sola fuente de verdad y que los pedidos excluidos por
     // estado queden VISIBLES en el diagnóstico (antes se filtraban aquí y
     // desaparecían sin rastro, escondiendo por qué "faltaba" un pedido).
-    const dateRangeQuery = `created_at:>='${dateFrom}T00:00:00-06:00' created_at:<='${dateTo}T23:59:59-06:00'`
+    const dateRangeQuery = `processed_at:>='${dateFrom}T00:00:00-06:00' processed_at:<='${dateTo}T23:59:59-06:00'`
 
     const allOrders = await fetchAllOrders(dateRangeQuery)
     const returnedOrders = await fetchAllOrders(dateRangeQuery + ' return_status:returned')

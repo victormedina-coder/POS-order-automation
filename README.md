@@ -21,7 +21,7 @@ dominio, y enriquecimiento opcional de la columna UUID vía la API de Facturama.
 
 - Node.js >= 22 < 23
 - Credenciales de Google OAuth (Cloud Console)
-- Access token de Shopify Admin API
+- Apps de Shopify con OAuth `client_credentials` y credenciales por marca
 - (Opcional) Credenciales de la API de Facturama
 
 ## Setup
@@ -35,9 +35,16 @@ npm run dev            # servidor con --watch en http://localhost:3000
 ### Variables de entorno
 
 ```
-# Shopify
-SHOPIFY_STORE=
-SHOPIFY_ACCESS_TOKEN=
+# Shopify por marca (OAuth client_credentials)
+ARIAT_SHOPIFY_STORE=
+ARIAT_SHOPIFY_CLIENT_ID=
+ARIAT_SHOPIFY_CLIENT_SECRET=
+STETSON_SHOPIFY_STORE=
+STETSON_SHOPIFY_CLIENT_ID=
+STETSON_SHOPIFY_CLIENT_SECRET=
+WB_SHOPIFY_STORE=
+WB_SHOPIFY_CLIENT_ID=
+WB_SHOPIFY_CLIENT_SECRET=
 
 # Auth
 ALLOWED_DOMAIN=

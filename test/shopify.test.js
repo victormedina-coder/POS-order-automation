@@ -9,7 +9,6 @@
  *   - El _tokenCache es privado (closure del módulo), por lo que no podemos
  *     resetearlo entre tests. Para aislar el cache entre tests de OAuth usamos
  *     claves de marca únicas por test (mock_brand_N).
- *   - Para auth "static" no hay cache — el token viene del brandConfig directamente.
  */
 
 import { test, describe, beforeEach, afterEach, mock } from 'node:test'
@@ -31,19 +30,6 @@ function makeFetchResponse(body, { ok = true, status = 200 } = {}) {
     status,
     text: async () => JSON.stringify(body),
     json: async () => body,
-  }
-}
-
-/** brandConfig para auth static */
-function makeStaticConfig(key = 'test_static') {
-  return {
-    key,
-    label: 'Test Static Brand',
-    shopify: {
-      store: 'test-store.myshopify.com',
-      auth: 'static',
-      accessToken: 'shpat_static_test_token',
-    },
   }
 }
 
@@ -82,77 +68,6 @@ function makeGraphQLOrdersResponse(orders = []) {
   }
 }
 
-// ─── Auth Static ──────────────────────────────────────────────────────────────
-
-describe('createShopifyClient — auth static', () => {
-  let originalFetch
-
-  beforeEach(() => {
-    originalFetch = global.fetch
-  })
-
-  afterEach(() => {
-    global.fetch = originalFetch
-    mock.restoreAll()
-  })
-
-  test('usa el accessToken fijo en el header X-Shopify-Access-Token', async () => {
-    const capturedRequests = []
-
-    global.fetch = async (url, options) => {
-      capturedRequests.push({ url, options })
-      return makeFetchResponse(makeGraphQLOrdersResponse())
-    }
-
-    const client = createShopifyClient(makeStaticConfig('static_header_test'))
-    await client.fetchOrders('2025-01-01', '2025-01-31')
-
-    assert.ok(capturedRequests.length >= 1, 'Se debe haber llamado fetch al menos una vez')
-
-    // La primera llamada es la GraphQL de orders
-    const [req] = capturedRequests
-    assert.equal(
-      req.options.headers['X-Shopify-Access-Token'],
-      'shpat_static_test_token',
-      'El header debe llevar el accessToken fijo'
-    )
-  })
-
-  test('NO hace ningún POST a /admin/oauth/access_token (auth estático no necesita token)', async () => {
-    const postToOAuth = []
-
-    global.fetch = async (url, options) => {
-      if (String(url).includes('/admin/oauth/access_token')) {
-        postToOAuth.push(url)
-      }
-      return makeFetchResponse(makeGraphQLOrdersResponse())
-    }
-
-    const client = createShopifyClient(makeStaticConfig('static_no_oauth_test'))
-    await client.fetchOrders('2025-01-01', '2025-01-31')
-
-    assert.equal(postToOAuth.length, 0, 'No debe haber POSTs al endpoint OAuth para auth static')
-  })
-
-  test('construye la URL de GraphQL con el store correcto', async () => {
-    const urls = []
-
-    global.fetch = async (url, options) => {
-      urls.push(String(url))
-      return makeFetchResponse(makeGraphQLOrdersResponse())
-    }
-
-    const config = makeStaticConfig('static_url_test')
-    const client = createShopifyClient(config)
-    await client.fetchOrders('2025-01-01', '2025-01-31')
-
-    assert.ok(
-      urls.some(u => u.includes('test-store.myshopify.com')),
-      'La URL debe contener el store de la marca'
-    )
-  })
-})
-
 // ─── Auth OAuth ───────────────────────────────────────────────────────────────
 
 describe('createShopifyClient — auth oauth', () => {
@@ -165,6 +80,25 @@ describe('createShopifyClient — auth oauth', () => {
   afterEach(() => {
     global.fetch = originalFetch
     mock.restoreAll()
+  })
+
+  test('construye la URL GraphQL con el store de la marca', async () => {
+    const urls = []
+
+    global.fetch = async (url) => {
+      urls.push(String(url))
+      if (String(url).includes('/admin/oauth/access_token')) {
+        return makeFetchResponse({ access_token: 'test_token', expires_in: 3600 })
+      }
+      return makeFetchResponse(makeGraphQLOrdersResponse())
+    }
+
+    const client = createShopifyClient(makeOAuthConfig(`oauth_url_test_${Date.now()}`))
+    await client.fetchOrders('2025-01-01', '2025-01-31')
+
+    assert.ok(
+      urls.some(url => url === 'https://oauth-store.myshopify.com/admin/api/2025-07/graphql.json')
+    )
   })
 
   test('hace POST a /admin/oauth/access_token con grant_type=client_credentials', async () => {
@@ -279,7 +213,10 @@ describe('createShopifyClient — auth oauth', () => {
 
     global.fetch = async (url, options) => {
       if (String(url).includes('/admin/oauth/access_token')) {
-        return makeFetchResponse({ error: 'invalid_client' }, { ok: false, status: 401 })
+        return makeFetchResponse(
+          { error: 'invalid_client', client_secret: 'sensitive_test_marker' },
+          { ok: false, status: 401 }
+        )
       }
       return makeFetchResponse(makeGraphQLOrdersResponse())
     }
@@ -289,9 +226,82 @@ describe('createShopifyClient — auth oauth', () => {
       () => client.fetchOrders('2025-01-01', '2025-01-31'),
       (err) => {
         assert.ok(err.message.includes('401'), `error: ${err.message}`)
+        assert.ok(!err.message.includes('sensitive_test_marker'))
+        assert.ok(!err.message.includes('invalid_client'))
         return true
       }
     )
+  })
+
+  test('consulta pedidos y devoluciones por processed_at con los límites del rango', async () => {
+    const queries = []
+    global.fetch = async (url, options) => {
+      if (String(url).includes('/admin/oauth/access_token')) {
+        return makeFetchResponse({ access_token: 'test_token', expires_in: 3600 })
+      }
+      queries.push(JSON.parse(options.body).variables.query)
+      return makeFetchResponse(makeGraphQLOrdersResponse())
+    }
+
+    await createShopifyClient(makeOAuthConfig(`processed_range_${Date.now()}`))
+      .fetchOrders('2026-10-22', '2026-11-05')
+
+    const range = "processed_at:>='2026-10-22T00:00:00-06:00' processed_at:<='2026-11-05T23:59:59-06:00'"
+    assert.deepEqual(queries, [range, `${range} return_status:returned`])
+  })
+
+  test('reintenta THROTTLED tras esperar según el costo y conserva la consulta', async () => {
+    const waits = []
+    mock.method(global, 'setTimeout', (callback, ms) => { waits.push(ms); callback() })
+    const queries = []
+    global.fetch = async (url, options) => {
+      if (String(url).includes('/admin/oauth/access_token')) {
+        return makeFetchResponse({ access_token: 'test_token', expires_in: 3600 })
+      }
+      queries.push(JSON.parse(options.body).variables.query)
+      if (queries.length === 1) {
+        return makeFetchResponse({
+          errors: [{ message: 'Throttled', extensions: { code: 'THROTTLED' } }],
+          extensions: { cost: { requestedQueryCost: 245, throttleStatus: { currentlyAvailable: 93, restoreRate: 100 } } },
+        })
+      }
+      return makeFetchResponse(makeGraphQLOrdersResponse())
+    }
+
+    const orders = await createShopifyClient(makeOAuthConfig(`throttled_retry_${Date.now()}`))
+      .fetchOrders('2026-11-01', '2026-11-01')
+
+    assert.deepEqual(orders, [])
+    assert.equal(queries.length, 3)
+    assert.equal(queries[0], queries[1])
+    assert.deepEqual(waits, [2000])
+  })
+
+  test('lanza THROTTLED tras agotar reintentos y no reintenta otros errores', async () => {
+    const waits = []
+    mock.method(global, 'setTimeout', (callback, ms) => { waits.push(ms); callback() })
+    let calls = 0
+    let errorCode = 'THROTTLED'
+    global.fetch = async (url) => {
+      if (String(url).includes('/admin/oauth/access_token')) {
+        return makeFetchResponse({ access_token: 'test_token', expires_in: 3600 })
+      }
+      calls++
+      return makeFetchResponse({
+        errors: [{ message: errorCode, extensions: { code: errorCode } }],
+        extensions: { cost: { requestedQueryCost: 135, throttleStatus: { currentlyAvailable: 93, restoreRate: 100 } } },
+      })
+    }
+
+    const client = createShopifyClient(makeOAuthConfig(`throttled_exhaust_${Date.now()}`))
+    await assert.rejects(() => client.fetchOrders('2026-11-01', '2026-11-01'), /Shopify GraphQL:.*THROTTLED/)
+    assert.equal(calls, 3)
+    assert.deepEqual(waits, [1000, 1000])
+
+    errorCode = 'ACCESS_DENIED'
+    calls = 0
+    await assert.rejects(() => client.fetchOrders('2026-11-01', '2026-11-01'), /Shopify GraphQL:.*ACCESS_DENIED/)
+    assert.equal(calls, 1)
   })
 })
 
