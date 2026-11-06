@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
-import logger from '../lib/logger.js'
 
 // Resuelve la ruta de config/brands.json relativa a la raíz del proyecto,
 // sin depender del cwd desde donde se lanza el proceso.
@@ -37,36 +36,18 @@ for (const [key, brand] of Object.entries(_raw.brands)) {
   if (!brand.shopify?.store_env) {
     throw new Error(`${prefix}: falta "shopify.store_env"`)
   }
-  const auth = brand.shopify.auth ?? 'static'
-  if (auth === 'static') {
-    if (!brand.shopify.access_token_env) {
-      throw new Error(`${prefix}: auth "static" requiere "shopify.access_token_env"`)
-    }
-  } else if (auth === 'oauth') {
-    if (!brand.shopify.client_id_env) {
-      throw new Error(`${prefix}: auth "oauth" requiere "shopify.client_id_env"`)
-    }
-    if (!brand.shopify.client_secret_env) {
-      throw new Error(`${prefix}: auth "oauth" requiere "shopify.client_secret_env"`)
-    }
-  } else {
-    throw new Error(`${prefix}: shopify.auth inválido "${auth}" — valores permitidos: "static", "oauth"`)
+  if (brand.shopify.auth !== 'oauth') {
+    throw new Error(`${prefix}: shopify.auth inválido "${brand.shopify.auth}" — valor permitido: "oauth"`)
+  }
+  if (!brand.shopify.client_id_env) {
+    throw new Error(`${prefix}: auth "oauth" requiere "shopify.client_id_env"`)
+  }
+  if (!brand.shopify.client_secret_env) {
+    throw new Error(`${prefix}: auth "oauth" requiere "shopify.client_secret_env"`)
   }
   if (typeof brand.enabled !== 'boolean') {
     throw new Error(`${prefix}: "enabled" debe ser boolean`)
   }
-}
-
-// ─── Warn-once para env vars legacy (se elimina en Etapa 7) ─────────────────
-const _legacyWarnEmitted = new Set()
-
-function warnLegacyOnce(legacyVar, primaryVar) {
-  if (_legacyWarnEmitted.has(legacyVar)) return
-  _legacyWarnEmitted.add(legacyVar)
-  logger.warn(
-    { legacyVar, primaryVar },
-    `[brands] usando env var legacy ${legacyVar} — migrar a ${primaryVar} (se elimina en Etapa 7)`
-  )
 }
 
 // ─── Exports públicos ────────────────────────────────────────────────────────
@@ -118,17 +99,11 @@ export function getFacturamaSerie(brandKey) {
 }
 
 /**
- * Resuelve la configuración operativa de una marca, incluyendo los valores
- * reales de las env vars de Shopify.
+ * Resuelve la configuración operativa de una marca y sus credenciales Shopify.
+ * Retorna { key, label, shopify: { store, auth: 'oauth', clientId, clientSecret } }.
  *
- * Para auth "static" retorna:
- *   { key, label, shopify: { store, auth: 'static', accessToken } }
- *
- * Para auth "oauth" retorna:
- *   { key, label, shopify: { store, auth: 'oauth', clientId, clientSecret } }
- *
- * @param {string|null|undefined} brandKey  Clave de la marca. Si es null/undefined usa el default.
- * @throws Si la marca no existe, está deshabilitada, o le faltan env vars.
+ * @param {string|null|undefined} brandKey Clave de la marca; null/undefined usa el default.
+ * @throws Si la marca no existe, está deshabilitada o le faltan env vars.
  */
 export function getBrandConfig(brandKey) {
   const key = brandKey ?? _raw.default
@@ -143,61 +118,30 @@ export function getBrandConfig(brandKey) {
     )
   }
 
-  // Resuelve store: usa la var principal; si falta, intenta la legacy (solo si está definida en el JSON).
-  let store = process.env[brand.shopify.store_env]
-  if (!store && brand.shopify.store_env_legacy) {
-    const legacyVal = process.env[brand.shopify.store_env_legacy]
-    if (legacyVal) {
-      warnLegacyOnce(brand.shopify.store_env_legacy, brand.shopify.store_env)
-      store = legacyVal
-    }
-  }
+  const store = process.env[brand.shopify.store_env]
   if (!store) {
     throw new Error(
       `[brands] Falta la variable de entorno ${brand.shopify.store_env} requerida por la marca "${key}"`
     )
   }
 
-  const auth = brand.shopify.auth ?? 'static'
-
-  if (auth === 'static') {
-    // Resuelve accessToken: usa la var principal; si falta, intenta la legacy.
-    let accessToken = process.env[brand.shopify.access_token_env]
-    if (!accessToken && brand.shopify.access_token_env_legacy) {
-      const legacyVal = process.env[brand.shopify.access_token_env_legacy]
-      if (legacyVal) {
-        warnLegacyOnce(brand.shopify.access_token_env_legacy, brand.shopify.access_token_env)
-        accessToken = legacyVal
-      }
-    }
-    if (!accessToken) {
-      throw new Error(
-        `[brands] Falta la variable de entorno ${brand.shopify.access_token_env} requerida por la marca "${key}"`
-      )
-    }
-    return {
-      key,
-      label:   brand.label,
-      shopify: { store, auth: 'static', accessToken },
-    }
-  }
-
-  // auth === 'oauth'
   const clientId = process.env[brand.shopify.client_id_env]
   if (!clientId) {
     throw new Error(
       `[brands] Falta la variable de entorno ${brand.shopify.client_id_env} requerida por la marca "${key}"`
     )
   }
+
   const clientSecret = process.env[brand.shopify.client_secret_env]
   if (!clientSecret) {
     throw new Error(
       `[brands] Falta la variable de entorno ${brand.shopify.client_secret_env} requerida por la marca "${key}"`
     )
   }
+
   return {
     key,
-    label:   brand.label,
+    label: brand.label,
     shopify: { store, auth: 'oauth', clientId, clientSecret },
   }
 }

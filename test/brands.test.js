@@ -47,8 +47,9 @@ afterEach(() => {
 // ─── Helpers para setear credenciales de marcas ───────────────────────────────
 
 function setAriatEnv() {
-  process.env.ARIAT_SHOPIFY_STORE        = 'ariat.myshopify.com'
-  process.env.ARIAT_SHOPIFY_ACCESS_TOKEN = 'shpat_test_token'
+  process.env.ARIAT_SHOPIFY_STORE         = 'ariat.myshopify.com'
+  process.env.ARIAT_SHOPIFY_CLIENT_ID     = 'client_id_ariat'
+  process.env.ARIAT_SHOPIFY_CLIENT_SECRET = 'client_secret_ariat'
 }
 
 function setStetsonEnv() {
@@ -120,9 +121,10 @@ describe('brands.js — getBrandConfig — null/undefined → default (ariat)', 
     setAriatEnv()
     const cfg = getBrandConfig(null)
     assert.equal(cfg.key, 'ariat')
-    assert.equal(cfg.shopify.auth, 'static')
+    assert.equal(cfg.shopify.auth, 'oauth')
     assert.equal(cfg.shopify.store, 'ariat.myshopify.com')
-    assert.equal(cfg.shopify.accessToken, 'shpat_test_token')
+    assert.equal(cfg.shopify.clientId, 'client_id_ariat')
+    assert.equal(cfg.shopify.clientSecret, 'client_secret_ariat')
   })
 
   test('undefined resuelve al default "ariat" si las env vars existen', () => {
@@ -132,19 +134,18 @@ describe('brands.js — getBrandConfig — null/undefined → default (ariat)', 
   })
 })
 
-describe('brands.js — getBrandConfig — shape para auth "static" (ariat)', () => {
-  test('retorna { key, label, shopify: { store, auth, accessToken } }', () => {
+describe('brands.js — getBrandConfig — shape para auth "oauth" (ariat)', () => {
+  test('retorna store, auth, clientId y clientSecret sin accessToken', () => {
     setAriatEnv()
     const cfg = getBrandConfig('ariat')
 
     assert.equal(cfg.key, 'ariat')
     assert.equal(cfg.label, 'Ariat')
     assert.equal(cfg.shopify.store, 'ariat.myshopify.com')
-    assert.equal(cfg.shopify.auth, 'static')
-    assert.equal(cfg.shopify.accessToken, 'shpat_test_token')
-    // En modo static NO debe exponer clientId / clientSecret
-    assert.equal(cfg.shopify.clientId, undefined)
-    assert.equal(cfg.shopify.clientSecret, undefined)
+    assert.equal(cfg.shopify.auth, 'oauth')
+    assert.equal(cfg.shopify.clientId, 'client_id_ariat')
+    assert.equal(cfg.shopify.clientSecret, 'client_secret_ariat')
+    assert.equal(cfg.shopify.accessToken, undefined)
   })
 })
 
@@ -166,10 +167,10 @@ describe('brands.js — getBrandConfig — shape para auth "oauth" (stetson)', (
 
 describe('brands.js — getBrandConfig — falta env var STORE', () => {
   test('lanza con el nombre de la var faltante (ARIAT_SHOPIFY_STORE)', () => {
-    // No seteamos ARIAT_SHOPIFY_STORE
     delete process.env.ARIAT_SHOPIFY_STORE
-    delete process.env.SHOPIFY_STORE // también aseguramos que la legacy no esté
-    process.env.ARIAT_SHOPIFY_ACCESS_TOKEN = 'shpat_token'
+    process.env.SHOPIFY_STORE = 'ariat-legacy.myshopify.com'
+    process.env.ARIAT_SHOPIFY_CLIENT_ID = 'id'
+    process.env.ARIAT_SHOPIFY_CLIENT_SECRET = 'secret'
 
     assert.throws(
       () => getBrandConfig('ariat'),
@@ -195,18 +196,26 @@ describe('brands.js — getBrandConfig — falta env var STORE', () => {
   })
 })
 
-describe('brands.js — getBrandConfig — falta env var ACCESS_TOKEN (static)', () => {
-  test('lanza con ARIAT_SHOPIFY_ACCESS_TOKEN cuando falta el token', () => {
-    process.env.ARIAT_SHOPIFY_STORE = 'ariat.myshopify.com'
-    delete process.env.ARIAT_SHOPIFY_ACCESS_TOKEN
-    delete process.env.SHOPIFY_ACCESS_TOKEN
+describe('brands.js — getBrandConfig — credenciales OAuth de Ariat', () => {
+  test('exige ARIAT_SHOPIFY_CLIENT_ID aunque exista el token anterior', () => {
+    setAriatEnv()
+    delete process.env.ARIAT_SHOPIFY_CLIENT_ID
+    process.env.ARIAT_SHOPIFY_ACCESS_TOKEN = 'old_test_token'
 
     assert.throws(
       () => getBrandConfig('ariat'),
-      (err) => {
-        assert.ok(err.message.includes('ARIAT_SHOPIFY_ACCESS_TOKEN'), `mensaje: ${err.message}`)
-        return true
-      }
+      /ARIAT_SHOPIFY_CLIENT_ID/
+    )
+  })
+
+  test('exige ARIAT_SHOPIFY_CLIENT_SECRET aunque exista el token legacy', () => {
+    setAriatEnv()
+    delete process.env.ARIAT_SHOPIFY_CLIENT_SECRET
+    process.env.SHOPIFY_ACCESS_TOKEN = 'old_test_token'
+
+    assert.throws(
+      () => getBrandConfig('ariat'),
+      /ARIAT_SHOPIFY_CLIENT_SECRET/
     )
   })
 })
@@ -240,28 +249,6 @@ describe('brands.js — getBrandConfig — falta env var CLIENT_SECRET (oauth)',
         return true
       }
     )
-  })
-})
-
-describe('brands.js — getBrandConfig — fallback legacy (store)', () => {
-  test('usa SHOPIFY_STORE (legacy) si ARIAT_SHOPIFY_STORE no está definida', () => {
-    delete process.env.ARIAT_SHOPIFY_STORE
-    process.env.SHOPIFY_STORE              = 'ariat-legacy.myshopify.com'
-    process.env.ARIAT_SHOPIFY_ACCESS_TOKEN = 'shpat_token'
-
-    const cfg = getBrandConfig('ariat')
-    assert.equal(cfg.shopify.store, 'ariat-legacy.myshopify.com')
-  })
-})
-
-describe('brands.js — getBrandConfig — fallback legacy (access_token)', () => {
-  test('usa SHOPIFY_ACCESS_TOKEN (legacy) si ARIAT_SHOPIFY_ACCESS_TOKEN no está', () => {
-    process.env.ARIAT_SHOPIFY_STORE   = 'ariat.myshopify.com'
-    delete process.env.ARIAT_SHOPIFY_ACCESS_TOKEN
-    process.env.SHOPIFY_ACCESS_TOKEN  = 'shpat_legacy_token'
-
-    const cfg = getBrandConfig('ariat')
-    assert.equal(cfg.shopify.accessToken, 'shpat_legacy_token')
   })
 })
 
